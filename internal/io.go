@@ -2,13 +2,10 @@ package internal
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
-	"io"
-	"os"
-  "time"
-	"strings"
-  "strconv"
-  "encoding/json"
+	"net/textproto"
+	"strconv"
 )
 
 type LSPRequestMessage struct {
@@ -29,80 +26,45 @@ type LSPResponseMessage struct {
     }
 }
 
-func ListenServer() {
-
-}
-
-func ListenClient(langServPipe io.WriteCloser) {
-    reader := bufio.NewReader(os.Stdin)
+func readLSPMessage(
+    reader *bufio.Reader,
+    jsonBody interface{},
+) (textproto.MIMEHeader, []byte, error) {
     rawLspRequest := []byte{}
-    headers := make(map[string]string)
+    tp := textproto.NewReader(reader)
+    headers, err := tp.ReadMIMEHeader()
 
-    for {
-        line, _, err := reader.ReadLine()
-        if err != nil {
-            if err.Error() == "EOF" {
-                fmt.Printf("Incomplete header section\n")
-                return
-            }
-            fmt.Printf("Error reading header line: %v\n", err)
-            return
-        }
-
-        if len(line) == 1 && line[0] == '\r' {
-            break
-        }
-
-        header := strings.Split(string(line), ":")
-        key := header[0]
-        value := strings.Trim(header[1], "\r ")
-
-        headers[key] = value
-
-        rawLspRequest = append(rawLspRequest, line...)
-        rawLspRequest = append(rawLspRequest, '\n')
+    if err != nil {
+        return nil, nil, fmt.Errorf("Failed to read LSP request header: %v\n", err)
     }
 
-    contentLength, ok := headers["Content-Length"]
+    contentLengths, ok := headers["Content-Length"]
     if !ok {
-        fmt.Printf("Missing Content-Length header in LSP request\n")
-        return
+        return nil, nil, fmt.Errorf("Missing Content-Length header in LSP request\n")
     }
 
+    contentLength := contentLengths[0]
     contentByteCnt, err := strconv.Atoi(contentLength)
     if err != nil {
-        fmt.Printf("Content-Length value is not an integer\n")
-        return
+        return nil, nil, fmt.Errorf("Content-Length value is not an integer\n")
     }
 
     requestContent := []byte{}
     for i := 0; i < contentByteCnt; i++ {
         ch, err := reader.ReadByte()
         if err != nil {
-            fmt.Printf("Error reading content byte: %v\n", err)
-            return
+            return nil, nil, fmt.Errorf("Error reading content byte: %v\n", err)
         }
 
         requestContent = append(requestContent, ch)
     }
 
-    rawLspRequest = append(rawLspRequest, requestContent...)
-
-    // Capture request ID
-    var lspRequest LSPRequestMessage
-    err = json.Unmarshal(requestContent, &lspRequest)
+    err = json.Unmarshal(requestContent, jsonBody)
     if err != nil {
-        fmt.Printf("Missing request ID\n")
-        return
+        return nil, nil, fmt.Errorf("Failed to decode JSON-RPC payload: %v\n", err)
     }
 
-    // Capture initial time
-    startTime := time.Now()
-
-    // Store request
-
-    // Forward request
-    langServPipe.Write(rawLspRequest)
-
-    // TODO: go processRequest(...)
+    rawLspRequest = append(rawLspRequest, requestContent...)
+    
+    return headers, rawLspRequest, nil
 }
