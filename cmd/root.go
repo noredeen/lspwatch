@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"lswatch/internal"
+	"lspwatch/internal"
 	"os"
 	"os/exec"
 
@@ -17,8 +17,8 @@ import (
 var serverLaunchCommand string
 
 var rootCmd = &cobra.Command {
-    Use:   "lswatch",
-    Short: "lswatch provides observability for LSP-compliant language servers",
+    Use:   "lspwatch",
+    Short: "lspwatch provides observability for LSP-compliant language servers",
     Run: func(cmd *cobra.Command, args []string) {
         RunWatcher()
     },
@@ -26,7 +26,7 @@ var rootCmd = &cobra.Command {
 
 func RunWatcher() {
     var logger = log.New()
-    file, err := os.OpenFile("lswatch.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+    file, err := os.OpenFile("lspwatch.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
     if err != nil {
         // TODO: Maybe don't die if log file can't be created
         logger.Fatal("Failed to create log file")
@@ -58,6 +58,7 @@ func RunWatcher() {
 }
 
 func init() {
+    // TODO: Make this better (use -- instead)
     rootCmd.Flags().StringVarP(
         &serverLaunchCommand,
         "command",

@@ -1,4 +1,4 @@
-module lswatch
+module lspwatch
 
 go 1.23.0
 

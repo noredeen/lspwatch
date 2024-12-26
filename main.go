@@ -1,6 +1,6 @@
 package main
 
-import "lswatch/cmd"
+import "lspwatch/cmd"
 
 func main() {
     cmd.Execute()
