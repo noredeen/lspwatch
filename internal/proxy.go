@@ -40,7 +40,7 @@ func (rh *RequestsHandler) ListenServer(
         
         requestTime, ok := rh.requestBuffer.Get(lspResponse.Id)
         if !ok {
-            logger.Error("Received response for nonexistent request\n")
+            logger.Error("Received response for nonexistent request")
             continue
         }
 

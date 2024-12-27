@@ -5,28 +5,30 @@ import (
 	"lspwatch/internal"
 	"os"
 	"os/exec"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
-// Take LSP command as input
-// Spawn process with that command
-// Listen for stdin, pass IO between langserv and stdout (to editor)
-
-var serverLaunchCommand string
+// NOTE: This is probably a little broken on Windows
+// TODO: Make request buffer thread-safe?
 
 var rootCmd = &cobra.Command {
     Use:   "lspwatch",
     Short: "lspwatch provides observability for LSP-compliant language servers",
+    Args: cobra.MinimumNArgs(1),
     Run: func(cmd *cobra.Command, args []string) {
-        RunWatcher()
+        RunWatcher(strings.Join(args, " "))
     },
 }
 
-func RunWatcher() {
+// TODO: This function is too messy now
+func RunWatcher(serverShellCommand string) {
     var logger = log.New()
-    file, err := os.OpenFile("lspwatch.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+    file, err := os.OpenFile("lspwatch.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
     if err != nil {
         // TODO: Maybe don't die if log file can't be created
         logger.Fatal("Failed to create log file")
@@ -34,39 +36,70 @@ func RunWatcher() {
 
     logger.Out = file
 
+    logger.Info("Starting lspwatch...")
+
     requestsHandler := internal.NewRequestsHandler()
 
-    lsCmd := exec.Command(serverLaunchCommand)
-    err = lsCmd.Start()
+    serverCmd := exec.Command(serverShellCommand)
+
+    stdoutPipe, err := serverCmd.StdoutPipe()
+    if err != nil {
+        logger.Fatalf("Failed to create pipe to server's stdout: %v", err)
+    }
+
+    stdinPipe, err := serverCmd.StdinPipe()
+    if err != nil {
+        logger.Fatalf("Failed to create pipe to server's stdin: %v", err)
+    }
+
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+    go func() {
+        sig := <-c
+        logger.Infof("lspwatch process interrupted, forwarding signal to language server...")
+        err := serverCmd.Process.Signal(sig)
+        if err != nil {
+            logger.Errorf("Failed to forward signal to language server process: %v", err)
+            os.Exit(1)
+        }
+
+        // TODO: Find a way to get the actual exit code after signal forwarding
+        // https://github.com/golang/go/issues/26539
+
+        err = serverCmd.Wait()
+
+        if s, ok := sig.(syscall.Signal); ok {
+            os.Exit(128 + int(s))
+        }
+    }()
+
+
+    err = serverCmd.Start()
     if err != nil {
         // TODO: Log something and exit properly
         return
     }
 
-    stdoutPipe, err := lsCmd.StdoutPipe()
-    if err != nil {
-        logger.Fatalf("Failed to create pipe to server's stdout")
-    }
-
-    stdinPipe, err := lsCmd.StdinPipe()
-    if err != nil {
-        logger.Fatalf("Failed to create pipe to server's stdin")
-    }
+    logger.Infof("Launched language server process (PID=%v)", serverCmd.Process.Pid)
 
     go requestsHandler.ListenServer(stdoutPipe, logger)
     go requestsHandler.ListenClient(stdinPipe, logger)
-}
 
-func init() {
-    // TODO: Make this better (use -- instead)
-    rootCmd.Flags().StringVarP(
-        &serverLaunchCommand,
-        "command",
-        "c",
-        "",
-        "Command to launch the language server (required)",
-    )
-    rootCmd.MarkFlagRequired("command")
+    exitCode := 0
+    err = serverCmd.Wait()
+    if err != nil {
+        logger.Errorf("Langage server has terminated unexpectedly: %v", err)
+        exitCode = serverCmd.ProcessState.ExitCode()
+        
+    } else {
+        logger.Info("Langauge server exited successfully")
+    }
+
+    file.Close()
+    stdoutPipe.Close()
+    stdinPipe.Close()
+
+    os.Exit(exitCode)
 }
 
 func Execute() {

@@ -35,25 +35,25 @@ func readLSPMessage(
     headers, err := tp.ReadMIMEHeader()
 
     if err != nil {
-        return nil, nil, fmt.Errorf("Failed to read LSP request header: %v\n", err)
+        return nil, nil, fmt.Errorf("Failed to read LSP request header: %v", err)
     }
 
     contentLengths, ok := headers["Content-Length"]
     if !ok {
-        return nil, nil, fmt.Errorf("Missing Content-Length header in LSP request\n")
+        return nil, nil, fmt.Errorf("Missing Content-Length header in LSP request")
     }
 
     contentLength := contentLengths[0]
     contentByteCnt, err := strconv.Atoi(contentLength)
     if err != nil {
-        return nil, nil, fmt.Errorf("Content-Length value is not an integer\n")
+        return nil, nil, fmt.Errorf("Content-Length value is not an integer")
     }
 
     requestContent := []byte{}
     for i := 0; i < contentByteCnt; i++ {
         ch, err := reader.ReadByte()
         if err != nil {
-            return nil, nil, fmt.Errorf("Error reading content byte: %v\n", err)
+            return nil, nil, fmt.Errorf("Error reading content byte: %v", err)
         }
 
         requestContent = append(requestContent, ch)
@@ -61,7 +61,7 @@ func readLSPMessage(
 
     err = json.Unmarshal(requestContent, jsonBody)
     if err != nil {
-        return nil, nil, fmt.Errorf("Failed to decode JSON-RPC payload: %v\n", err)
+        return nil, nil, fmt.Errorf("Failed to decode JSON-RPC payload: %v", err)
     }
 
     rawLspRequest = append(rawLspRequest, requestContent...)
