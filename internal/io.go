@@ -31,9 +31,9 @@ func readLSPMessage(
     jsonBody interface{},
 ) (textproto.MIMEHeader, []byte, error) {
     rawLspRequest := []byte{}
+
     tp := textproto.NewReader(reader)
     headers, err := tp.ReadMIMEHeader()
-
     if err != nil {
         return nil, nil, fmt.Errorf("Failed to read LSP request header: %v", err)
     }

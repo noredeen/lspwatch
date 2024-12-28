@@ -25,9 +25,8 @@ var rootCmd = &cobra.Command {
     },
 }
 
-// TODO: This function is too messy now
-func RunWatcher(serverShellCommand string) {
-    var logger = log.New()
+func createLogger() (*log.Logger, *os.File) {
+    logger := log.New()
     file, err := os.OpenFile("lspwatch.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
     if err != nil {
         // TODO: Maybe don't die if log file can't be created
@@ -35,6 +34,36 @@ func RunWatcher(serverShellCommand string) {
     }
 
     logger.Out = file
+
+    return logger, file
+}
+
+func launchInterruptHandler(serverCmd *exec.Cmd, logger *log.Logger) {
+    signalChan := make(chan os.Signal, 1)
+    signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+
+    go func() {
+        sig := <-signalChan
+        logger.Infof("lspwatch process interrupted, forwarding signal to language server...")
+        err := serverCmd.Process.Signal(sig)
+        if err != nil {
+            logger.Errorf("Failed to forward signal to language server process: %v", err)
+            os.Exit(1)
+        }
+
+        // TODO: Find a way to get the actual exit code after signal forwarding
+        // https://github.com/golang/go/issues/26539
+
+        err = serverCmd.Wait()
+
+        if s, ok := sig.(syscall.Signal); ok {
+            os.Exit(128 + int(s))
+        }
+    }()
+}
+
+func RunWatcher(serverShellCommand string) {
+    logger, logFile := createLogger()
 
     logger.Info("Starting lspwatch...")
 
@@ -52,27 +81,7 @@ func RunWatcher(serverShellCommand string) {
         logger.Fatalf("Failed to create pipe to server's stdin: %v", err)
     }
 
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-    go func() {
-        sig := <-c
-        logger.Infof("lspwatch process interrupted, forwarding signal to language server...")
-        err := serverCmd.Process.Signal(sig)
-        if err != nil {
-            logger.Errorf("Failed to forward signal to language server process: %v", err)
-            os.Exit(1)
-        }
-
-        // TODO: Find a way to get the actual exit code after signal forwarding
-        // https://github.com/golang/go/issues/26539
-
-        err = serverCmd.Wait()
-
-        if s, ok := sig.(syscall.Signal); ok {
-            os.Exit(128 + int(s))
-        }
-    }()
-
+    logger.Infof("Launched language server process (PID=%v)", serverCmd.Process.Pid)
 
     err = serverCmd.Start()
     if err != nil {
@@ -80,7 +89,7 @@ func RunWatcher(serverShellCommand string) {
         return
     }
 
-    logger.Infof("Launched language server process (PID=%v)", serverCmd.Process.Pid)
+    launchInterruptHandler(serverCmd, logger)
 
     go requestsHandler.ListenServer(stdoutPipe, logger)
     go requestsHandler.ListenClient(stdinPipe, logger)
@@ -95,7 +104,7 @@ func RunWatcher(serverShellCommand string) {
         logger.Info("Langauge server exited successfully")
     }
 
-    file.Close()
+    logFile.Close()
     stdoutPipe.Close()
     stdinPipe.Close()
 
