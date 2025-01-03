@@ -48,19 +48,57 @@ type LSPResponseMessage struct {
 	}
 }
 
+type HeaderCaptureReader struct {
+	reader  io.Reader
+	buffer  bytes.Buffer
+	reading bool
+}
+
+func NewHeaderCaptureReader(reader io.Reader) *HeaderCaptureReader {
+	return &HeaderCaptureReader{reader: reader, reading: true}
+}
+
+func (hcr *HeaderCaptureReader) trimBufferAfterHeader() {
+	headerEnd := bytes.Index(hcr.buffer.Bytes(), []byte("\r\n\r\n"))
+	if headerEnd != -1 {
+		hcr.buffer.Truncate(headerEnd + 4)
+	}
+}
+
+func (hcr *HeaderCaptureReader) Read(p []byte) (int, error) {
+	n, err := hcr.reader.Read(p)
+	if err != nil {
+		return n, err
+	}
+
+	if hcr.reading {
+		hcr.buffer.Write(p[:n])
+		if bytes.Contains(hcr.buffer.Bytes(), []byte("\r\n\r\n")) {
+			hcr.reading = false
+			hcr.trimBufferAfterHeader()
+		}
+	}
+
+	return n, err
+}
+
+func (hcr *HeaderCaptureReader) CapturedBytes() []byte {
+	return hcr.buffer.Bytes()
+}
+
 func readLSPMessage(
-	reader *loggingReader,
+	reader io.Reader,
 	jsonBody interface{},
 ) (textproto.MIMEHeader, []byte, error) {
 	// NOTE: Passing an io.TeeReader into a bufio.Reader will not work here
-	//	because the TeeReader will capture the entire buffer that was read,
-	//	and textproto.Reader reads from buffers of size > 1. We will need
-	//	a different way of getting the raw header bytes. It's looking like
-	//	I might have to just rebuild them from the parsed headers. Ugh
+	//	because the io.TeeReader will capture the entire buffer that was read
+	//	by textproto, and textproto.Reader reads from buffers of size > 1.
+	//	This means io.TeeReader will frequently capture bytes beyond the
+	//	header of the request. My solution is to create a custom capturing
+	//	reader to operate underneath bufio.Reader for retaining ONLY header bytes.
 
-	headerBytes := bytes.Buffer{}
-	teeReader := io.TeeReader(reader, &headerBytes)
-	bufReader := bufio.NewReader(teeReader)
+	capReader := NewHeaderCaptureReader(reader)
+	bufReader := bufio.NewReader(capReader)
 	tp := textproto.NewReader(bufReader)
 
 	headers, err := tp.ReadMIMEHeader()
@@ -68,7 +106,7 @@ func readLSPMessage(
 		return nil, nil, fmt.Errorf("Failed to read LSP request header: %v", err)
 	}
 
-	rawLspRequest := headerBytes.Bytes()
+	rawLspRequest := capReader.CapturedBytes()
 
 	contentLengths, ok := headers["Content-Length"]
 	if !ok {

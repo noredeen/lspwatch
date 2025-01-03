@@ -1,7 +1,7 @@
 package internal
 
 import (
-	"fmt"
+	// "fmt"
 	"github.com/elliotchance/orderedmap/v3"
 	log "github.com/sirupsen/logrus"
 	"io"
@@ -34,19 +34,15 @@ func (rh *RequestsHandler) ListenServer(
 	serverOutputPipe io.ReadCloser,
 	logger *log.Logger,
 ) {
-	// reader := bufio.NewReader(serverOutputPipe)
-
 	for {
 		var lspResponse LSPResponseMessage
-		_, rawLspResponse, err := readLSPMessage(&loggingReader{r: serverOutputPipe, Logger: logger}, lspResponse)
+		_, rawLspResponse, err := readLSPMessage(serverOutputPipe, &lspResponse)
 		if err != nil {
 			logger.Errorf("Failed to parse message from language server: %v", err)
 			continue
 		}
 
-		logger.Info("Received message from server!!!")
-
-		_, err = fmt.Print(rawLspResponse)
+		_, err = os.Stdout.Write(rawLspResponse)
 		if err != nil {
 			log.Errorf("Failed to forward server message to client: %v", err)
 			continue
@@ -59,7 +55,7 @@ func (rh *RequestsHandler) ListenServer(
 		}
 
 		latency := time.Now().Sub(requestTime)
-		logger.Infof("REQUEST LATENCY: %v", latency.Seconds())
+		logger.Infof("REQUEST LATENCY: %v seconds", latency.Seconds())
 	}
 }
 
@@ -67,28 +63,21 @@ func (rh *RequestsHandler) ListenClient(
 	serverInputPipe io.WriteCloser,
 	logger *log.Logger,
 ) {
-	// reader := bufio.NewReader(os.Stdin)
-
 	for {
 		var lspRequest LSPRequestMessage
-		headers, rawLspRequest, err := readLSPMessage(&loggingReader{r: os.Stdin, Logger: logger}, &lspRequest)
+		_, rawLspRequest, err := readLSPMessage(os.Stdin, &lspRequest)
 		if err != nil {
 			logger.Errorf("Failed to parse message from client: %v", err)
 			continue
 		}
 
-		logger.Info("Received message from client!!!")
-		logger.Info("HEADERS: %v", headers)
-
 		requestArrivalTime := time.Now()
 
 		rh.requestBuffer.Set(lspRequest.Id.Value, requestArrivalTime)
 
-		n, err := serverInputPipe.Write(rawLspRequest)
+		_, err = serverInputPipe.Write(rawLspRequest)
 		if err != nil {
 			log.Errorf("Failed to forward client message to language server stdin: %v", err)
 		}
-
-		logger.Infof("Wrote %v bytes to server stdin", n)
 	}
 }
