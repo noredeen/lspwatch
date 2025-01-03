@@ -2,69 +2,102 @@ package internal
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/textproto"
 	"strconv"
 )
 
+type StringOrInt struct {
+	Value string
+}
+
+func (s *StringOrInt) UnmarshalJSON(data []byte) error {
+	var intVal int
+	if err := json.Unmarshal(data, &intVal); err == nil {
+		s.Value = strconv.Itoa(intVal)
+		return nil
+	}
+
+	var strVal string
+	if err := json.Unmarshal(data, &strVal); err == nil {
+		s.Value = strVal
+		return nil
+	}
+
+	return fmt.Errorf("Value is neither string nor int: %s", data)
+}
+
 type LSPRequestMessage struct {
-    Jsonrpc string
-    Id string
-    Method string
-    Params *json.RawMessage
+	Jsonrpc string
+	Id      StringOrInt
+	Method  string
+	Params  *json.RawMessage
 }
 
 type LSPResponseMessage struct {
-    Jsonrpc string
-    Id string
-    Result *json.RawMessage
-    Error *struct {
-        Code int
-        Message string
-        Data *json.RawMessage
-    }
+	Jsonrpc string
+	Id      StringOrInt
+	Result  *json.RawMessage
+	Error   *struct {
+		Code    int
+		Message string
+		Data    *json.RawMessage
+	}
 }
 
 func readLSPMessage(
-    reader *bufio.Reader,
-    jsonBody interface{},
+	reader *loggingReader,
+	jsonBody interface{},
 ) (textproto.MIMEHeader, []byte, error) {
-    rawLspRequest := []byte{}
+	// NOTE: Passing an io.TeeReader into a bufio.Reader will not work here
+	//	because the TeeReader will capture the entire buffer that was read,
+	//	and textproto.Reader reads from buffers of size > 1. We will need
+	//	a different way of getting the raw header bytes. It's looking like
+	//	I might have to just rebuild them from the parsed headers. Ugh
 
-    tp := textproto.NewReader(reader)
-    headers, err := tp.ReadMIMEHeader()
-    if err != nil {
-        return nil, nil, fmt.Errorf("Failed to read LSP request header: %v", err)
-    }
+	headerBytes := bytes.Buffer{}
+	teeReader := io.TeeReader(reader, &headerBytes)
+	bufReader := bufio.NewReader(teeReader)
+	tp := textproto.NewReader(bufReader)
 
-    contentLengths, ok := headers["Content-Length"]
-    if !ok {
-        return nil, nil, fmt.Errorf("Missing Content-Length header in LSP request")
-    }
+	headers, err := tp.ReadMIMEHeader()
+	if err != nil {
+		return nil, nil, fmt.Errorf("Failed to read LSP request header: %v", err)
+	}
 
-    contentLength := contentLengths[0]
-    contentByteCnt, err := strconv.Atoi(contentLength)
-    if err != nil {
-        return nil, nil, fmt.Errorf("Content-Length value is not an integer")
-    }
+	rawLspRequest := headerBytes.Bytes()
 
-    requestContent := []byte{}
-    for i := 0; i < contentByteCnt; i++ {
-        ch, err := reader.ReadByte()
-        if err != nil {
-            return nil, nil, fmt.Errorf("Error reading content byte: %v", err)
-        }
+	contentLengths, ok := headers["Content-Length"]
+	if !ok {
+		return nil, nil, fmt.Errorf("Missing Content-Length header in LSP request")
+	}
 
-        requestContent = append(requestContent, ch)
-    }
+	contentLength := contentLengths[0]
+	contentByteCnt, err := strconv.Atoi(contentLength)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Content-Length value is not an integer")
+	}
 
-    err = json.Unmarshal(requestContent, jsonBody)
-    if err != nil {
-        return nil, nil, fmt.Errorf("Failed to decode JSON-RPC payload: %v", err)
-    }
+	requestContent := []byte{}
+	for i := 0; i < contentByteCnt; i++ {
+		buffer := make([]byte, 1)
+		_, err := bufReader.Read(buffer)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Error reading content byte: %v", err)
+		}
 
-    rawLspRequest = append(rawLspRequest, requestContent...)
-    
-    return headers, rawLspRequest, nil
+		requestContent = append(requestContent, buffer...)
+	}
+
+	err = json.Unmarshal(requestContent, jsonBody)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Failed to decode JSON-RPC payload: %v", err)
+	}
+
+	rawLspRequest = append(rawLspRequest, requestContent...)
+
+	return headers, rawLspRequest, nil
 }
