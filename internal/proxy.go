@@ -30,26 +30,27 @@ func NewRequestsHandler() *RequestsHandler {
 }
 
 // TODO: 1) Start setting up 3rd party o11y connections (otel, datadog, etc)
+//	 2) At some point I have to stop ignoring concurrency problems
 
 func (rh *RequestsHandler) ListenServer(
 	serverOutputPipe io.ReadCloser,
 	logger *log.Logger,
 ) {
 	for {
-		var lspResponse LSPServerMessage
-		_, rawLspResponse, err := readLSPMessage(serverOutputPipe, &lspResponse)
+		var serverMessage LSPServerMessage
+		_, rawLspMessage, err := readLSPMessage(serverOutputPipe, &serverMessage)
 		if err == nil {
 			currentTime := time.Now()
 
 			// In LSP, servers can originate requests (which include a `method` field)
 			// in some cases. lspwatch ignores such server requests.
-			if lspResponse.Id != nil && lspResponse.Method == nil {
-				requestTime, ok := rh.requestBuffer.Get(lspResponse.Id.Value)
+			if serverMessage.Id != nil && serverMessage.Method == nil {
+				requestTime, ok := rh.requestBuffer.Get(serverMessage.Id.Value)
 				if ok {
-					rh.requestBuffer.Delete(lspResponse.Id.Value)
+					rh.requestBuffer.Delete(serverMessage.Id.Value)
 					_ = currentTime.Sub(requestTime)
 				} else {
-					logger.Infof("Received response for unbuffered request with ID=%v", lspResponse.Id.Value)
+					logger.Infof("Received response for unbuffered request with ID=%v", serverMessage.Id.Value)
 				}
 			}
 		} else {
@@ -57,7 +58,7 @@ func (rh *RequestsHandler) ListenServer(
 		}
 
 		// Forward message
-		_, err = os.Stdout.Write(rawLspResponse)
+		_, err = os.Stdout.Write(rawLspMessage)
 		if err != nil {
 			log.Errorf("Failed to forward server message to client: %v", err)
 			continue
@@ -70,15 +71,15 @@ func (rh *RequestsHandler) ListenClient(
 	logger *log.Logger,
 ) {
 	for {
-		var lspRequest LSPClientMessage
-		_, rawLspRequest, err := readLSPMessage(os.Stdin, &lspRequest)
+		var clientMessage LSPClientMessage
+		_, rawLspMessage, err := readLSPMessage(os.Stdin, &clientMessage)
 		if err == nil {
 			// lspwatch ignores all non-request messages from clients
 			// e.g (cancellations, progress checks, etc)
-			if lspRequest.Id != nil && lspRequest.Method != nil {
-				isNewKey := rh.requestBuffer.Set(lspRequest.Id.Value, time.Now())
+			if clientMessage.Id != nil && clientMessage.Method != nil {
+				isNewKey := rh.requestBuffer.Set(clientMessage.Id.Value, time.Now())
 				if !isNewKey {
-					log.Infof("Client request with ID=%v already exists in the buffer", lspRequest.Id.Value)
+					log.Infof("Client request with ID=%v already exists in the buffer", clientMessage.Id.Value)
 				}
 			}
 		} else {
@@ -86,7 +87,7 @@ func (rh *RequestsHandler) ListenClient(
 		}
 
 		// Forward message
-		_, err = serverInputPipe.Write(rawLspRequest)
+		_, err = serverInputPipe.Write(rawLspMessage)
 		if err != nil {
 			log.Errorf("Failed to forward client message to language server stdin: %v", err)
 		}
