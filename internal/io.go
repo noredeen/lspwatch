@@ -30,18 +30,17 @@ func (s *StringOrInt) UnmarshalJSON(data []byte) error {
 	return fmt.Errorf("Value is neither string nor int: %s", data)
 }
 
-type LSPRequestMessage struct {
-	Jsonrpc string
-	Id      StringOrInt
-	Method  string
-	Params  *json.RawMessage
+type LSPClientMessage struct {
+	Id     *StringOrInt
+	Method *string
+	Params *json.RawMessage
 }
 
-type LSPResponseMessage struct {
-	Jsonrpc string
-	Id      StringOrInt
-	Result  *json.RawMessage
-	Error   *struct {
+type LSPServerMessage struct {
+	Id     *StringOrInt
+	Method *string
+	Result *json.RawMessage
+	Error  *struct {
 		Code    int
 		Message string
 		Data    *json.RawMessage
