@@ -85,6 +85,11 @@ func (hcr *HeaderCaptureReader) CapturedBytes() []byte {
 	return hcr.buffer.Bytes()
 }
 
+// TODO: There's a weird bug where the textproto reader
+// sees a JSON body immediately followed by a Content-Length
+// header (which doesn't match the length of the body). Happens
+// very infrequently and hard to repro.
+
 func readLSPMessage(
 	reader io.Reader,
 	jsonBody interface{},
