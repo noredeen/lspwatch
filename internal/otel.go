@@ -3,8 +3,9 @@ package internal
 import (
 	"context"
 	// "go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -21,25 +22,41 @@ type OTelLatencyExporter struct {
 	histogram     metric.Float64Histogram
 }
 
-func (ole OTelLatencyExporter) RecordLatency(duration time.Duration) {
+var _ LatencyExporter = OTelLatencyExporter{}
+
+func (ole OTelLatencyExporter) RecordLatency(duration time.Duration) error {
 	ole.histogram.Record(context.Background(), duration.Seconds())
+	return nil
 }
 
+// Might have to rework this into invoking a function stored in the struct
 func (ole OTelLatencyExporter) Shutdown() error {
 	return ole.meterProvider.Shutdown(context.Background())
 }
 
 func newResource() (*resource.Resource, error) {
-	// TODO: Not sure what would go in here
+	// TODO: Not sure what would go in here.
 	return resource.Merge(resource.Default(),
 		resource.NewWithAttributes(semconv.SchemaURL,
 			semconv.ServiceName("my-service"),
 			semconv.ServiceVersion("0.1.0"),
-		))
+		),
+	)
 }
 
 func newMeterProvider(res *resource.Resource) (*sdkmetric.MeterProvider, error) {
-	metricExporter, err := stdoutmetric.New()
+	// WARN: All configuration from With..() functions can be overriden
+	// by setting environment vars
+	metricExporter, err := otlpmetrichttp.New(
+		context.Background(),
+		// TODO:: Add these options for configuration.
+		// otlpmetrichttp.WithEndpointURL(),
+		// otlpmetrichttp.WithHeaders(),
+		// otlpmetrichttp.WithTLSClientConfig(),
+		// otlpmetrichttp.WithTimeout(),
+		// otlpmetrichttp.WithRetry(),
+		// otlpmetrichttp.WithProxy(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +70,16 @@ func newMeterProvider(res *resource.Resource) (*sdkmetric.MeterProvider, error) 
 	return meterProvider, nil
 }
 
+func newPropagator() propagation.TextMapPropagator {
+	return propagation.NewCompositeTextMapPropagator()
+}
+
+// https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
 func NewOTelLatencyExporter() (*OTelLatencyExporter, error) {
+	// TODO: Do I need this propagator thing?
+	// prop := newPropagator()
+	// otel.SetTextMapPropagator(prop)
+
 	res, err := newResource()
 	if err != nil {
 		return nil, err

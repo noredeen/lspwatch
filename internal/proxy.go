@@ -22,11 +22,20 @@ func (lr *loggingReader) Read(p []byte) (n int, err error) {
 var _ io.Reader = &loggingReader{}
 
 type RequestsHandler struct {
-	requestBuffer *orderedmap.OrderedMap[string, time.Time]
+	requestBuffer   *orderedmap.OrderedMap[string, time.Time]
+	latencyExporter LatencyExporter
 }
 
-func NewRequestsHandler() *RequestsHandler {
-	return &RequestsHandler{orderedmap.NewOrderedMap[string, time.Time]()}
+func NewRequestsHandler() (*RequestsHandler, error) {
+	otelLatencyExporter, err := NewOTelLatencyExporter()
+	if err != nil {
+		return nil, err
+	}
+
+	return &RequestsHandler{
+		requestBuffer:   orderedmap.NewOrderedMap[string, time.Time](),
+		latencyExporter: otelLatencyExporter,
+	}, nil
 }
 
 // MVP FEATURES:
@@ -47,15 +56,13 @@ func (rh *RequestsHandler) ListenServer(
 		var serverMessage LSPServerMessage
 		_, rawLspMessage, err := readLSPMessage(serverOutputPipe, &serverMessage)
 		if err == nil {
-			currentTime := time.Now()
-
 			// In LSP, servers can originate requests (which include a `method` field)
 			// in some cases. lspwatch ignores such server requests.
 			if serverMessage.Id != nil && serverMessage.Method == nil {
 				requestTime, ok := rh.requestBuffer.Get(serverMessage.Id.Value)
 				if ok {
 					rh.requestBuffer.Delete(serverMessage.Id.Value)
-					_ = currentTime.Sub(requestTime)
+					_ = time.Since(requestTime)
 				} else {
 					logger.Infof("Received response for unbuffered request with ID=%v", serverMessage.Id.Value)
 				}
