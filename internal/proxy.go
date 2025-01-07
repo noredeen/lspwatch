@@ -29,6 +29,13 @@ func NewRequestsHandler() *RequestsHandler {
 	return &RequestsHandler{orderedmap.NewOrderedMap[string, time.Time]()}
 }
 
+// MVP FEATURES:
+// - [ ] export to otel collector or straight to datadog
+// - [ ] lspwatch command should work with flags (use `lspwatch [flags] -- [server cmd]`)
+//	- [ ] should support --version, --disable
+// - [ ] collect resource consumption data for server process
+// - [ ] lspwatch should be configurable via a json/yaml file
+
 // TODO: 1) Start setting up 3rd party o11y connections (otel, datadog, etc)
 //	 2) At some point I have to stop ignoring concurrency problems
 
