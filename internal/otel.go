@@ -44,13 +44,25 @@ func newResource() (*resource.Resource, error) {
 	)
 }
 
+/*
+exporter: opentelemetry/datadog
+opentelemetry:
+	endpoint_url: ...
+	timeout: ...
+	proxy: ...
+	retry: ...
+	tls:
+		client_ca: ...
+		...
+*/
+
 func newMeterProvider(res *resource.Resource) (*sdkmetric.MeterProvider, error) {
 	// WARN: All configuration from With..() functions can be overriden
 	// by setting environment vars
 	metricExporter, err := otlpmetrichttp.New(
 		context.Background(),
 		// TODO:: Add these options for configuration.
-		// otlpmetrichttp.WithEndpointURL(),
+		otlpmetrichttp.WithEndpointURL("http://localhost:4318/v1/metrics"),
 		// otlpmetrichttp.WithHeaders(),
 		// otlpmetrichttp.WithTLSClientConfig(),
 		// otlpmetrichttp.WithTimeout(),
@@ -63,8 +75,12 @@ func newMeterProvider(res *resource.Resource) (*sdkmetric.MeterProvider, error) 
 
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter,
-			sdkmetric.WithInterval(30*time.Second))),
+		sdkmetric.WithReader(
+			sdkmetric.NewPeriodicReader(
+				metricExporter,
+				sdkmetric.WithInterval(30*time.Second),
+			),
+		),
 	)
 
 	return meterProvider, nil

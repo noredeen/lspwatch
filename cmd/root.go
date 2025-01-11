@@ -26,7 +26,6 @@ var rootCmd = &cobra.Command{
 			RunProxy(args[0], []string{})
 		}
 	},
-	DisableFlagParsing: true,
 }
 
 func createLogger() (*log.Logger, *os.File) {
@@ -65,7 +64,10 @@ func RunProxy(serverShellCommand string, args []string) {
 
 	logger.Info("Starting lspwatch...")
 
-	requestsHandler := internal.NewRequestsHandler()
+	requestsHandler, err := internal.NewRequestsHandler()
+	if err != nil {
+		logger.Fatalf("Failed to initialize LSP request handler: %v", err)
+	}
 
 	serverCmd := exec.Command(serverShellCommand, args...)
 

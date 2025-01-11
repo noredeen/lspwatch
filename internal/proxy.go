@@ -62,7 +62,8 @@ func (rh *RequestsHandler) ListenServer(
 				requestTime, ok := rh.requestBuffer.Get(serverMessage.Id.Value)
 				if ok {
 					rh.requestBuffer.Delete(serverMessage.Id.Value)
-					_ = time.Since(requestTime)
+					duration := time.Since(requestTime)
+					rh.latencyExporter.RecordLatency(duration)
 				} else {
 					logger.Infof("Received response for unbuffered request with ID=%v", serverMessage.Id.Value)
 				}
