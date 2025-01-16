@@ -1,5 +1,6 @@
 lspwatch
 main
+.vscode
 *.exe
 *.exe~
 *.dll
@@ -8,4 +9,5 @@ main
 *.test
 *.out
 *.log
+*.env
 go.work

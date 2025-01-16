@@ -60,8 +60,9 @@ deps:
 .PHONY: run-otel-collector
 run-otel-collector:
 	@echo "Running OpenTelemetry collector..."
-	docker pull otel/opentelemetry-collector-contrib
-	docker run -p 127.0.0.1:4318:4318 otel/opentelemetry-collector-contrib 2>&1 | tee collector-output.txt
+	docker compose -f otel.compose.yaml up --build 
+	# docker pull otel/opentelemetry-collector-contrib
+	# docker run -p 127.0.0.1:4318:4318 otel/opentelemetry-collector-contrib 2>&1 | tee collector-output.txt
 
 # Display help
 .PHONY: help

@@ -3,13 +3,16 @@ package internal
 import (
 	"errors"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 type openTelemetryConfig struct {
-	EndpointURL *string `yaml:"endpoint_url"`
-	Timeout     *int    `yaml:"timeout"`
+	Endpoint *string             `yaml:"metrics_endpoint"`
+	Headers  *map[string]*string `yaml:"headers"`
+	Timeout  *int                `yaml:"timeout"`
+	// TODO: protocol, TLS, retry, proxy, ...
 }
 
 type LspwatchConfig struct {
@@ -30,15 +33,15 @@ func validateLspwatchConfig(config *LspwatchConfig) error {
 		}
 
 		if !good {
-			return fmt.Errorf("Exporter '%v' is not supported", config.Exporter)
+			return fmt.Errorf("exporter '%v' is not supported", config.Exporter)
 		}
 	} else {
-		return errors.New("Missing 'exporter' field")
+		return errors.New("missing 'exporter' field")
 	}
 
 	if config.OpenTelemetry != nil {
-		if config.OpenTelemetry.EndpointURL == nil {
-			return errors.New("Missing 'endpoint_url' field under 'opentelemetry'")
+		if config.OpenTelemetry.Endpoint == nil {
+			return errors.New("missing 'metrics_endpoint' field under 'opentelemetry'")
 		}
 	}
 
@@ -48,18 +51,18 @@ func validateLspwatchConfig(config *LspwatchConfig) error {
 func ReadLspwatchConfig(path string) (*LspwatchConfig, error) {
 	fileBytes, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read config file: %v", err)
+		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
 
 	config := &LspwatchConfig{}
 	err = yaml.Unmarshal(fileBytes, config)
 	if err != nil {
-		return nil, fmt.Errorf("Error decoding config YAML: %v", err)
+		return nil, fmt.Errorf("error decoding config YAML: %v", err)
 	}
 
 	err = validateLspwatchConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid lspwatch configuration: %v", err)
+		return nil, fmt.Errorf("invalid lspwatch configuration: %v", err)
 	}
 
 	return config, nil
