@@ -26,7 +26,12 @@ type MetricsExporter interface {
 	Shutdown() error
 }
 
-func NewTag(key string, value string) {}
+func NewTag(key string, value string) Tag {
+	return Tag{
+		Key:   key,
+		Value: value,
+	}
+}
 
 func NewMetricRecording(
 	name string,
@@ -34,8 +39,11 @@ func NewMetricRecording(
 	value float64,
 	tags ...Tag,
 ) MetricRecording {
-	// TODO: tags
 	tagsMap := make(map[string]string)
+	for _, tag := range tags {
+		tagsMap[tag.Key] = tag.Value
+	}
+
 	return MetricRecording{
 		Name:      name,
 		Timestamp: timestamp,

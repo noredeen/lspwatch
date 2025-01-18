@@ -14,9 +14,14 @@ import (
 
 // TODO: This file needs cleaning up
 
+type RequestBookmark struct {
+	RequestTime time.Time
+	Method      *string
+}
+
 type RequestsHandler struct {
 	Exporter      MetricsExporter
-	requestBuffer *orderedmap.OrderedMap[string, time.Time]
+	requestBuffer *orderedmap.OrderedMap[string, RequestBookmark]
 }
 
 func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHandler, error) {
@@ -42,7 +47,7 @@ func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHa
 	exporter.RegisterMetric(Histogram, "lspwatch.request.duration", "Request duration", "s")
 
 	return &RequestsHandler{
-		requestBuffer: orderedmap.NewOrderedMap[string, time.Time](),
+		requestBuffer: orderedmap.NewOrderedMap[string, RequestBookmark](),
 		Exporter:      exporter,
 	}, nil
 }
@@ -105,14 +110,15 @@ func (rh *RequestsHandler) ListenServer(
 					// In LSP, servers can originate requests (which include a `method` field)
 					// in some cases. lspwatch ignores such server requests.
 					if serverMessage.Id != nil && serverMessage.Method == nil {
-						requestTime, ok := rh.requestBuffer.Get(serverMessage.Id.Value)
+						requestBookmark, ok := rh.requestBuffer.Get(serverMessage.Id.Value)
 						if ok {
 							rh.requestBuffer.Delete(serverMessage.Id.Value)
-							duration := time.Since(requestTime)
+							duration := time.Since(requestBookmark.RequestTime)
 							metric := NewMetricRecording(
 								"lspwatch.request.duration",
 								time.Now().Unix(),
 								duration.Seconds(),
+								NewTag("method", *requestBookmark.Method),
 							)
 							err := rh.Exporter.EmitMetric(metric)
 							if err != nil {
@@ -194,7 +200,11 @@ func (rh *RequestsHandler) ListenClient(
 					// lspwatch ignores all non-request messages from clients
 					// e.g (cancellations, progress checks, etc)
 					if clientMessage.Id != nil && clientMessage.Method != nil {
-						isNewKey := rh.requestBuffer.Set(clientMessage.Id.Value, time.Now())
+						bookmark := RequestBookmark{
+							RequestTime: time.Now(),
+							Method:      clientMessage.Method,
+						}
+						isNewKey := rh.requestBuffer.Set(clientMessage.Id.Value, bookmark)
 						if !isNewKey {
 							logger.Infof("client request with ID=%v already exists in the buffer", clientMessage.Id.Value)
 						}
