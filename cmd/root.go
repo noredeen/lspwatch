@@ -9,12 +9,20 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
+// TODO:
+// - [ ] support -c or --config-file
+// - [ ] finish datadog exporter
+// - [ ] finish otel file exporter
+// - [ ] report resource consumption for server process
+// - [ ] make request buffer thread-safe?
+// - [ ] create new log file for each session
+
 // NOTE: This is probably a little broken on Windows
-// TODO: Make request buffer thread-safe?
 
 var rootCmd = &cobra.Command{
 	Use:   "lspwatch",
@@ -61,7 +69,7 @@ func launchInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	}()
 }
 
-func launchProcessExitListener(serverCmd *exec.Cmd, outgoingStopSignal chan error, logger *logrus.Logger) {
+func launchProcessExitListener(serverCmd *exec.Cmd, outgoingStopSignal chan error) {
 	go func() {
 		err := serverCmd.Wait()
 		outgoingStopSignal <- err
@@ -72,6 +80,12 @@ func RunProxy(serverShellCommand string, args []string) {
 	logger, logFile := createLogger()
 
 	logger.Info("starting lspwatch...")
+
+	// TODO: load from a specific file path (e.g lspwatch.env or user-provided path)
+	err := godotenv.Load()
+	if err != nil {
+		logger.Fatalf("error loading .env file: %v", err)
+	}
 
 	requestsHandler, err := internal.NewRequestsHandler(logger)
 	if err != nil {
@@ -101,7 +115,7 @@ func RunProxy(serverShellCommand string, args []string) {
 	launchInterruptListener(serverCmd, logger)
 
 	processExitChan := make(chan error)
-	launchProcessExitListener(serverCmd, processExitChan, logger)
+	launchProcessExitListener(serverCmd, processExitChan)
 
 	var listenersWaitGroup sync.WaitGroup
 	listenersWaitGroup.Add(2)
@@ -114,6 +128,12 @@ func RunProxy(serverShellCommand string, args []string) {
 	defer func() {
 		// Wait for all server and client listeners to exit
 		listenersWaitGroup.Wait()
+		err := requestsHandler.Exporter.Shutdown()
+		if err != nil {
+			logger.Errorf("error shutting down metrics exporter: %v", err)
+		} else {
+			logger.Info("metrics exporter shutdown complete")
+		}
 
 		stdoutPipe.Close()
 		stdinPipe.Close()

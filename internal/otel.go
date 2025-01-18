@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/bombsimon/logrusr/v4"
@@ -17,18 +18,42 @@ import (
 
 type OTelMetricsExporter struct {
 	meterProvider *sdkmetric.MeterProvider
-	histogram     metric.Float64Histogram
+	meter         metric.Meter
+	histograms    map[string]metric.Float64Histogram
 }
 
-var _ MetricsExporter = OTelMetricsExporter{}
+var _ MetricsExporter = &OTelMetricsExporter{}
 
-func (ome OTelMetricsExporter) EmitMetric(metricPoint MetricPoint) error { // ..name string, timestamp int, value float64) error {
-	ome.histogram.Record(context.Background(), metricPoint.Value)
+func (ome *OTelMetricsExporter) RegisterMetric(kind MetricKind, name string, description string, unit string) error {
+	switch kind {
+	case Histogram:
+		hist, err := ome.meter.Float64Histogram(
+			name,
+			metric.WithDescription(description),
+			metric.WithUnit(unit),
+		)
+		if err != nil {
+			return err
+		}
+
+		ome.histograms[name] = hist
+	}
+
 	return nil
 }
 
+func (ome *OTelMetricsExporter) EmitMetric(metricPoint MetricRecording) error {
+	if histogram, ok := ome.histograms[metricPoint.Name]; ok {
+		// TODO: add timeout
+		histogram.Record(context.Background(), metricPoint.Value)
+		return nil
+	} else {
+		return fmt.Errorf("histogram not found for metric: %s", metricPoint.Name)
+	}
+}
+
 // NOTE: Might have to rework this into invoking a function stored in the struct.
-func (ome OTelMetricsExporter) Shutdown() error {
+func (ome *OTelMetricsExporter) Shutdown() error {
 	return ome.meterProvider.Shutdown(context.Background())
 }
 
@@ -98,17 +123,8 @@ func NewOTelMetricsExporter(logger *logrus.Logger) (*OTelMetricsExporter, error)
 
 	meter := meterProvider.Meter("lspwatch")
 
-	hist, err := meter.Float64Histogram(
-		"request.duration",
-		metric.WithDescription("The duration of an LSP request"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	return &OTelMetricsExporter{
 		meterProvider: meterProvider,
-		histogram:     hist,
+		meter:         meter,
 	}, nil
 }

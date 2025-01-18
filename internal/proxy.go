@@ -1,12 +1,5 @@
 package internal
 
-// MVP FEATURES:
-// - [ ] export to otel collector or straight to datadog
-// - [ ] lspwatch command should work with flags (use `lspwatch [flags] -- [server cmd]`)
-//	- [ ] should support --version, --disable
-// - [ ] collect resource consumption data for server process
-// - [ ] lspwatch should be configurable via a json/yaml file
-
 import (
 	"context"
 	"io"
@@ -18,44 +11,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type MetricPoint struct {
-	Name      string
-	Timestamp int
-	Value     float64
-}
-
-type MetricsExporter interface {
-	EmitMetric(metric MetricPoint) error
-	Shutdown() error
-}
-
-type loggingReader struct {
-	r      io.Reader
-	Logger *logrus.Logger
-}
-
-func (lr *loggingReader) Read(p []byte) (n int, err error) {
-	n, err = lr.r.Read(p)
-	lr.Logger.Infof("Read %d bytes: %q\n", n, p[:n])
-	return n, err
-}
-
-var _ io.Reader = &loggingReader{}
-
 type RequestsHandler struct {
-	requestBuffer   *orderedmap.OrderedMap[string, time.Time]
-	latencyExporter MetricsExporter
+	Exporter      MetricsExporter
+	requestBuffer *orderedmap.OrderedMap[string, time.Time]
 }
 
 func NewRequestsHandler(logger *logrus.Logger) (*RequestsHandler, error) {
-	otelLatencyExporter, err := NewOTelMetricsExporter(logger)
-	if err != nil {
-		return nil, err
-	}
+	// otelExporter, err := NewOTelMetricsExporter(logger)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	datadogExporter := NewDatadogMetricsExporter()
 
 	return &RequestsHandler{
-		requestBuffer:   orderedmap.NewOrderedMap[string, time.Time](),
-		latencyExporter: otelLatencyExporter,
+		requestBuffer: orderedmap.NewOrderedMap[string, time.Time](),
+		Exporter:      datadogExporter,
 	}, nil
 }
 
@@ -121,7 +92,12 @@ func (rh *RequestsHandler) ListenServer(
 						if ok {
 							rh.requestBuffer.Delete(serverMessage.Id.Value)
 							duration := time.Since(requestTime)
-							rh.latencyExporter.EmitMetric(MetricPoint{Value: duration.Seconds()})
+							metric := NewMetricRecording(
+								"request.duration",
+								time.Now().Unix(),
+								duration.Seconds(),
+							)
+							rh.Exporter.EmitMetric(metric)
 						} else {
 							logger.Infof("received response for unbuffered request with ID=%v", serverMessage.Id.Value)
 						}

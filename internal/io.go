@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/textproto"
 	"strconv"
+
+	"github.com/sirupsen/logrus"
 )
 
 type StringOrInt struct {
@@ -43,6 +45,20 @@ type LSPReadResult struct {
 	err     error
 }
 
+// For debugging
+type LoggingReader struct {
+	r      io.Reader
+	Logger *logrus.Logger
+}
+
+var _ io.Reader = &LoggingReader{}
+
+func (lr *LoggingReader) Read(p []byte) (n int, err error) {
+	n, err = lr.r.Read(p)
+	lr.Logger.Infof("Read %d bytes: %q\n", n, p[:n])
+	return n, err
+}
+
 func (s *StringOrInt) UnmarshalJSON(data []byte) error {
 	var intVal int
 	if err := json.Unmarshal(data, &intVal); err == nil {
@@ -57,10 +73,6 @@ func (s *StringOrInt) UnmarshalJSON(data []byte) error {
 	}
 
 	return fmt.Errorf("value is neither string nor int: %s", data)
-}
-
-func NewHeaderCaptureReader(reader io.Reader) *HeaderCaptureReader {
-	return &HeaderCaptureReader{reader: reader, reading: true}
 }
 
 func (hcr *HeaderCaptureReader) trimBufferAfterHeader() {
@@ -89,6 +101,10 @@ func (hcr *HeaderCaptureReader) Read(p []byte) (int, error) {
 
 func (hcr *HeaderCaptureReader) CapturedBytes() []byte {
 	return hcr.buffer.Bytes()
+}
+
+func NewHeaderCaptureReader(reader io.Reader) *HeaderCaptureReader {
+	return &HeaderCaptureReader{reader: reader, reading: true}
 }
 
 // TODO: There's a weird bug where the textproto reader
