@@ -1,1 +1,13 @@
+lspwatch
+main
+.vscode
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
 *.log
+*.env
+go.work

@@ -6,14 +6,23 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/joho/godotenv"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
+// TODO:
+// - [ ] support -c or --config-file
+// - [ ] finish datadog exporter
+// - [ ] finish otel file exporter
+// - [ ] report resource consumption for server process
+// - [ ] make request buffer thread-safe?
+// - [ ] create new log file for each session
+
 // NOTE: This is probably a little broken on Windows
-// TODO: Make request buffer thread-safe?
 
 var rootCmd = &cobra.Command{
 	Use:   "lspwatch",
@@ -26,15 +35,14 @@ var rootCmd = &cobra.Command{
 			RunProxy(args[0], []string{})
 		}
 	},
-	DisableFlagParsing: true,
 }
 
-func createLogger() (*log.Logger, *os.File) {
-	logger := log.New()
+func createLogger() (*logrus.Logger, *os.File) {
+	logger := logrus.New()
 	file, err := os.OpenFile("lspwatch.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		// TODO: Eventually logging should be optional
-		logger.Fatal("Failed to create log file")
+		logger.Fatalf("Error creating log file: %v", err)
 	}
 
 	logger.Out = file
@@ -42,72 +50,134 @@ func createLogger() (*log.Logger, *os.File) {
 	return logger, file
 }
 
-func launchInterruptHandler(serverCmd *exec.Cmd, logger *log.Logger) {
+func launchInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
 	go func() {
-		sig := <-signalChan
-		logger.Infof("lspwatch process interrupted, forwarding signal to language server...")
-		err := serverCmd.Process.Signal(sig)
-		if err != nil {
-			logger.Fatalf(
-				"Failed to forward signal to language server process (PID=%v): %v",
-				serverCmd.Process.Pid,
-				err,
-			)
+		for sig := range signalChan {
+			logger.Infof("lspwatch process interrupted. forwarding signal to language server...")
+			err := serverCmd.Process.Signal(sig)
+			if err != nil {
+				logger.Fatalf(
+					"error forwarding signal to language server process (PID=%v): %v",
+					serverCmd.Process.Pid,
+					err,
+				)
+			}
 		}
+	}()
+}
+
+func launchProcessExitListener(serverCmd *exec.Cmd, outgoingStopSignal chan error) {
+	go func() {
+		err := serverCmd.Wait()
+		outgoingStopSignal <- err
 	}()
 }
 
 func RunProxy(serverShellCommand string, args []string) {
 	logger, logFile := createLogger()
 
-	logger.Info("Starting lspwatch...")
+	logger.Info("starting lspwatch...")
 
-	requestsHandler := internal.NewRequestsHandler()
+	// TODO: load from a specific file path (e.g lspwatch.env or user-provided path)
+	err := godotenv.Load()
+	if err != nil {
+		logger.Fatalf("error loading .env file: %v", err)
+	}
+
+	requestsHandler, err := internal.NewRequestsHandler(logger)
+	if err != nil {
+		logger.Fatalf("error initializing LSP request handler: %v", err)
+	}
 
 	serverCmd := exec.Command(serverShellCommand, args...)
 
 	stdoutPipe, err := serverCmd.StdoutPipe()
 	if err != nil {
-		logger.Fatalf("Failed to create pipe to server's stdout: %v", err)
+		logger.Fatalf("error creating pipe to server's stdout: %v", err)
 	}
 
 	stdinPipe, err := serverCmd.StdinPipe()
 	if err != nil {
-		logger.Fatalf("Failed to create pipe to server's stdin: %v", err)
+		logger.Fatalf("error creating pipe to server's stdin: %v", err)
 	}
 
-	logger.Infof("Starting language server using command '%v' and args '%v'", serverShellCommand, args)
+	logger.Infof("starting language server using command '%v' and args '%v'", serverShellCommand, args)
 	err = serverCmd.Start()
 	if err != nil {
-		logger.Fatalf("Failed to start language server process: %v", err)
+		logger.Fatalf("error starting language server process: %v", err)
 	}
 
-	logger.Infof("Launched language server process (PID=%v)", serverCmd.Process.Pid)
+	logger.Infof("launched language server process (PID=%v)", serverCmd.Process.Pid)
 
-	launchInterruptHandler(serverCmd, logger)
+	launchInterruptListener(serverCmd, logger)
 
-	go requestsHandler.ListenServer(stdoutPipe, logger)
-	go requestsHandler.ListenClient(stdinPipe, logger)
+	processExitChan := make(chan error)
+	launchProcessExitListener(serverCmd, processExitChan)
 
-	// TODO: I really don't like this at all
-	// https://github.com/golang/go/issues/26539
+	var listenersWaitGroup sync.WaitGroup
+	listenersWaitGroup.Add(2)
+	listenersStopChan := make(chan struct{})
+	go requestsHandler.ListenServer(stdoutPipe, logger, listenersStopChan, &listenersWaitGroup)
+	go requestsHandler.ListenClient(stdinPipe, logger, listenersStopChan, &listenersWaitGroup)
+
 	exitCode := 0
-	err = serverCmd.Wait()
-	if err != nil {
-		logger.Error("Language server has terminated with non-zero exit code")
-		exitCode = serverCmd.ProcessState.ExitCode()
-	} else {
-		logger.Info("Langauge server exited successfully")
+
+	defer func() {
+		// Wait for all server and client listeners to exit
+		listenersWaitGroup.Wait()
+		err := requestsHandler.Exporter.Shutdown()
+		if err != nil {
+			logger.Errorf("error shutting down metrics exporter: %v", err)
+		} else {
+			logger.Info("metrics exporter shutdown complete")
+		}
+
+		stdoutPipe.Close()
+		stdinPipe.Close()
+
+		logger.Info("lspwatch shutdown cleanup complete. goodbye!")
+
+		logFile.Close()
+		os.Exit(exitCode)
+	}()
+
+	for {
+		select {
+		case err = <-processExitChan:
+			{
+				logger.Info("language server process exited")
+
+				if err != nil {
+					exitCode = serverCmd.ProcessState.ExitCode()
+				}
+
+				if listenersStopChan != nil {
+					// Ask the listeners to terminate
+					close(listenersStopChan)
+					listenersStopChan = nil
+				}
+
+				return
+			}
+		case <-listenersStopChan:
+			// Either client or server listener requested shutdown
+			{
+				if listenersStopChan != nil {
+					err = serverCmd.Process.Signal(syscall.SIGINT)
+					if err != nil {
+						logger.Fatalf("error signaling language server to shut down: %v", err)
+					}
+
+					// Ask the other listener(s) to terminate
+					close(listenersStopChan)
+					listenersStopChan = nil
+				}
+			}
+		}
 	}
-
-	logFile.Close()
-	stdoutPipe.Close()
-	stdinPipe.Close()
-
-	os.Exit(exitCode)
 }
 
 func Execute() {

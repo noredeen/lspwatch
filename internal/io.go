@@ -8,26 +8,12 @@ import (
 	"io"
 	"net/textproto"
 	"strconv"
+
+	"github.com/sirupsen/logrus"
 )
 
 type StringOrInt struct {
 	Value string
-}
-
-func (s *StringOrInt) UnmarshalJSON(data []byte) error {
-	var intVal int
-	if err := json.Unmarshal(data, &intVal); err == nil {
-		s.Value = strconv.Itoa(intVal)
-		return nil
-	}
-
-	var strVal string
-	if err := json.Unmarshal(data, &strVal); err == nil {
-		s.Value = strVal
-		return nil
-	}
-
-	return fmt.Errorf("Value is neither string nor int: %s", data)
 }
 
 type LSPClientMessage struct {
@@ -53,8 +39,40 @@ type HeaderCaptureReader struct {
 	reading bool
 }
 
-func NewHeaderCaptureReader(reader io.Reader) *HeaderCaptureReader {
-	return &HeaderCaptureReader{reader: reader, reading: true}
+type LSPReadResult struct {
+	headers *textproto.MIMEHeader
+	rawBody *[]byte
+	err     error
+}
+
+// For debugging
+type LoggingReader struct {
+	r      io.Reader
+	Logger *logrus.Logger
+}
+
+var _ io.Reader = &LoggingReader{}
+
+func (lr *LoggingReader) Read(p []byte) (n int, err error) {
+	n, err = lr.r.Read(p)
+	lr.Logger.Infof("Read %d bytes: %q\n", n, p[:n])
+	return n, err
+}
+
+func (s *StringOrInt) UnmarshalJSON(data []byte) error {
+	var intVal int
+	if err := json.Unmarshal(data, &intVal); err == nil {
+		s.Value = strconv.Itoa(intVal)
+		return nil
+	}
+
+	var strVal string
+	if err := json.Unmarshal(data, &strVal); err == nil {
+		s.Value = strVal
+		return nil
+	}
+
+	return fmt.Errorf("value is neither string nor int: %s", data)
 }
 
 func (hcr *HeaderCaptureReader) trimBufferAfterHeader() {
@@ -85,10 +103,19 @@ func (hcr *HeaderCaptureReader) CapturedBytes() []byte {
 	return hcr.buffer.Bytes()
 }
 
+func NewHeaderCaptureReader(reader io.Reader) *HeaderCaptureReader {
+	return &HeaderCaptureReader{reader: reader, reading: true}
+}
+
+// TODO: There's a weird bug where the textproto reader
+// sees a JSON body immediately followed by a Content-Length
+// header (which doesn't match the length of the body). Happens
+// very infrequently and hard to repro.
+
 func readLSPMessage(
 	reader io.Reader,
 	jsonBody interface{},
-) (textproto.MIMEHeader, []byte, error) {
+) LSPReadResult {
 	// NOTE: Passing an io.TeeReader into a bufio.Reader will not work here
 	//	because the io.TeeReader will capture the entire buffer that was read
 	//	by textproto, and textproto.Reader reads from buffers of size > 1.
@@ -102,20 +129,26 @@ func readLSPMessage(
 
 	headers, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to read LSP request header: %v", err)
+		return LSPReadResult{
+			err: fmt.Errorf("failed to read LSP request header: %v", err),
+		}
 	}
 
 	rawLspRequest := capReader.CapturedBytes()
 
 	contentLengths, ok := headers["Content-Length"]
 	if !ok {
-		return nil, nil, fmt.Errorf("Missing Content-Length header in LSP request")
+		return LSPReadResult{
+			err: fmt.Errorf("missing Content-Length header in LSP request"),
+		}
 	}
 
 	contentLength := contentLengths[0]
 	contentByteCnt, err := strconv.Atoi(contentLength)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Content-Length value is not an integer")
+		return LSPReadResult{
+			err: fmt.Errorf("Content-Length value is not an integer"),
+		}
 	}
 
 	requestContent := []byte{}
@@ -123,7 +156,9 @@ func readLSPMessage(
 		buffer := make([]byte, 1)
 		_, err := bufReader.Read(buffer)
 		if err != nil {
-			return nil, nil, fmt.Errorf("Error reading content byte: %v", err)
+			return LSPReadResult{
+				err: fmt.Errorf("error reading content byte: %v", err),
+			}
 		}
 
 		requestContent = append(requestContent, buffer...)
@@ -131,10 +166,15 @@ func readLSPMessage(
 
 	err = json.Unmarshal(requestContent, jsonBody)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to decode JSON-RPC payload: %v", err)
+		return LSPReadResult{
+			err: fmt.Errorf("failed to decode JSON-RPC payload: %v", err),
+		}
 	}
 
 	rawLspRequest = append(rawLspRequest, requestContent...)
 
-	return headers, rawLspRequest, nil
+	return LSPReadResult{
+		headers: &headers,
+		rawBody: &rawLspRequest,
+	}
 }
