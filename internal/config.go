@@ -1,51 +1,42 @@
 package internal
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
+	"github.com/go-playground/validator/v10"
 	"gopkg.in/yaml.v3"
 )
 
 type openTelemetryConfig struct {
-	Endpoint *string             `yaml:"metrics_endpoint"`
-	Headers  *map[string]*string `yaml:"headers"`
-	Timeout  *int                `yaml:"timeout"`
+	Protocol  string             `yaml:"protocol" validate:"required,oneof=grpc http file"`
+	Directory string             `yaml:"directory" validate:"required_if=Protocol file,min=1"`
+	Endpoint  string             `yaml:"metrics_endpoint" validate:"required_unless=Protocol file"`
+	Headers   *map[string]string `yaml:"headers"`
+	Timeout   *int               `yaml:"timeout"`
 	// TODO: protocol, TLS, retry, proxy, ...
 }
 
-type LspwatchConfig struct {
-	Exporter      *string              `yaml:"exporter"`
-	OpenTelemetry *openTelemetryConfig `yaml:"opentelemetry"`
+type datadogConfig struct {
+	ClientApiKeyEnvVar string `yaml:"client_api_key_env_var" validate:"required"`
+	ClientAppKeyEnvVar string `yaml:"client_app_key_env_var" validate:"required"`
 }
 
-var supportedExporters = [...]string{"opentelemetry", "datadog", "file"}
+type LspwatchConfig struct {
+	Exporter      string              `yaml:"exporter" validate:"required,oneof=opentelemetry datadog"`
+	EnvFilePath   string              `yaml:"env_file" validate:"filepath,required_if=Exporter datadog"`
+	OpenTelemetry openTelemetryConfig `yaml:"opentelemetry" validate:"required_if=Exporter opentelemetry"`
+	Datadog       datadogConfig       `yaml:"datadog" validate:""`
+}
 
-func validateLspwatchConfig(config *LspwatchConfig) error {
-	if config.Exporter != nil {
-		good := false
-
-		for _, exporter := range supportedExporters {
-			if *config.Exporter == exporter {
-				good = true
-			}
-		}
-
-		if !good {
-			return fmt.Errorf("exporter '%v' is not supported", config.Exporter)
-		}
-	} else {
-		return errors.New("missing 'exporter' field")
+func GetDefaultConfig() LspwatchConfig {
+	return LspwatchConfig{
+		Exporter: "opentelemetry",
+		OpenTelemetry: openTelemetryConfig{
+			Protocol:  "file",
+			Directory: ".",
+		},
 	}
-
-	if config.OpenTelemetry != nil {
-		if config.OpenTelemetry.Endpoint == nil {
-			return errors.New("missing 'metrics_endpoint' field under 'opentelemetry'")
-		}
-	}
-
-	return nil
 }
 
 func ReadLspwatchConfig(path string) (*LspwatchConfig, error) {
@@ -54,16 +45,18 @@ func ReadLspwatchConfig(path string) (*LspwatchConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %v", err)
 	}
 
-	config := &LspwatchConfig{}
-	err = yaml.Unmarshal(fileBytes, config)
+	config := LspwatchConfig{}
+	err = yaml.Unmarshal(fileBytes, &config)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding config YAML: %v", err)
 	}
 
-	err = validateLspwatchConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("invalid lspwatch configuration: %v", err)
-	}
+	validate := validator.New(validator.WithRequiredStructEnabled())
+	err = validate.Struct(config)
+	// TODO: Return erros
+	// if validationErrors != nil {
+	// 	return nil, fmt.Errorf("invalid lspwatch configuration: %v", err)
+	// }
 
-	return config, nil
+	return &config, nil
 }

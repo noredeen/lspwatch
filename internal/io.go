@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/textproto"
+	"os"
 	"strconv"
 
 	"github.com/sirupsen/logrus"
@@ -177,4 +178,20 @@ func readLSPMessage(
 		headers: &headers,
 		rawBody: &rawLspRequest,
 	}
+}
+
+func CreateLogger(filePath string, enabled bool) (*logrus.Logger, *os.File, error) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+
+	if enabled {
+		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error creating log file: %v", err)
+		}
+		logger.Out = file
+		return logger, file, nil
+	}
+
+	return logger, nil, nil
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"lspwatch/internal"
 	"os"
 	"os/exec"
@@ -12,42 +13,119 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 // TODO:
-// - [ ] support -c or --config-file
-// - [ ] finish datadog exporter
+// - [x] support -c or --config-file
+// - [x] finish datadog exporter
 // - [ ] finish otel file exporter
 // - [ ] report resource consumption for server process
 // - [ ] make request buffer thread-safe?
-// - [ ] create new log file for each session
+// - [ ] better log file management
 
-// NOTE: This is probably a little broken on Windows
+type lspwatchInstance struct {
+	cfg             internal.LspwatchConfig
+	logger          *logrus.Logger
+	logFile         *os.File
+	requestsHandler *internal.RequestsHandler
+	serverCmd       *exec.Cmd
+	stdoutPipe      io.ReadCloser
+	stdinPipe       io.WriteCloser
+}
 
+var cfgFilePath string
 var rootCmd = &cobra.Command{
 	Use:   "lspwatch",
 	Short: "lspwatch provides observability for LSP-compliant language servers over stdin/stdout",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		var serverArgs []string
 		if len(args) > 1 {
-			RunProxy(args[0], args[1:])
+			serverArgs = args[1:]
 		} else {
-			RunProxy(args[0], []string{})
+			serverArgs = []string{}
 		}
+
+		lspwatchInstance, err := setUpLspwatch(args[0], serverArgs)
+
+		if err != nil {
+			fmt.Printf("error setting up lspwatch: %v\n", err)
+			os.Exit(1)
+		}
+
+		lspwatchInstance.runProxy()
 	},
 }
 
-func createLogger() (*logrus.Logger, *os.File) {
-	logger := logrus.New()
-	file, err := os.OpenFile("lspwatch.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+func init() {
+	rootCmd.PersistentFlags().StringVar(&cfgFilePath, "config", "", "path to config file for lspwatch")
+}
+
+func setUpLspwatch(serverShellCommand string, args []string) (lspwatchInstance, error) {
+	logger, logFile, err := internal.CreateLogger("lspwatch.log", true)
 	if err != nil {
-		// TODO: Eventually logging should be optional
-		logger.Fatalf("Error creating log file: %v", err)
+		return lspwatchInstance{}, fmt.Errorf("error creating logger: %v", err)
 	}
 
-	logger.Out = file
+	cfg, err := getConfig(cfgFilePath)
+	if err != nil {
+		return lspwatchInstance{}, fmt.Errorf("error getting lspwatch config: %v", err)
+	}
 
-	return logger, file
+	// TODO: Make pointer?
+	if cfg.EnvFilePath != "" {
+		err = godotenv.Load(cfg.EnvFilePath)
+		if err != nil {
+			logger.Fatalf("error loading .env file: %v", err)
+		}
+	}
+
+	requestsHandler, err := internal.NewRequestsHandler(&cfg, logger)
+	if err != nil {
+		logger.Fatalf("error initializing LSP request handler: %v", err)
+	}
+
+	serverCmd := exec.Command(serverShellCommand, args...)
+
+	stdoutPipe, err := serverCmd.StdoutPipe()
+	if err != nil {
+		logger.Fatalf("error creating pipe to server's stdout: %v", err)
+	}
+
+	stdinPipe, err := serverCmd.StdinPipe()
+	if err != nil {
+		logger.Fatalf("error creating pipe to server's stdin: %v", err)
+	}
+
+	return lspwatchInstance{
+		cfg:             cfg,
+		logger:          logger,
+		logFile:         logFile,
+		requestsHandler: requestsHandler,
+		serverCmd:       serverCmd,
+		stdoutPipe:      stdoutPipe,
+		stdinPipe:       stdinPipe,
+	}, nil
+}
+
+func getConfig(path string) (internal.LspwatchConfig, error) {
+	if path == "" {
+		return internal.GetDefaultConfig(), nil
+	}
+
+	dat, err := os.ReadFile(path)
+	if err != nil {
+		return internal.LspwatchConfig{}, fmt.Errorf("error reading config file: %v", err)
+	}
+
+	cfg := internal.LspwatchConfig{}
+	err = yaml.Unmarshal(dat, &cfg)
+	if err != nil {
+		return internal.LspwatchConfig{}, fmt.Errorf("error parsing config file: %v", err)
+	}
+
+	return cfg, nil
 }
 
 func launchInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
@@ -76,36 +154,15 @@ func launchProcessExitListener(serverCmd *exec.Cmd, outgoingStopSignal chan erro
 	}()
 }
 
-func RunProxy(serverShellCommand string, args []string) {
-	logger, logFile := createLogger()
+func (lspwatchInstance *lspwatchInstance) runProxy() {
+	logger := lspwatchInstance.logger
+	logFile := lspwatchInstance.logFile
+	serverCmd := lspwatchInstance.serverCmd
+	requestsHandler := lspwatchInstance.requestsHandler
 
-	logger.Info("starting lspwatch...")
+	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args)
 
-	// TODO: load from a specific file path (e.g lspwatch.env or user-provided path)
-	err := godotenv.Load()
-	if err != nil {
-		logger.Fatalf("error loading .env file: %v", err)
-	}
-
-	requestsHandler, err := internal.NewRequestsHandler(logger)
-	if err != nil {
-		logger.Fatalf("error initializing LSP request handler: %v", err)
-	}
-
-	serverCmd := exec.Command(serverShellCommand, args...)
-
-	stdoutPipe, err := serverCmd.StdoutPipe()
-	if err != nil {
-		logger.Fatalf("error creating pipe to server's stdout: %v", err)
-	}
-
-	stdinPipe, err := serverCmd.StdinPipe()
-	if err != nil {
-		logger.Fatalf("error creating pipe to server's stdin: %v", err)
-	}
-
-	logger.Infof("starting language server using command '%v' and args '%v'", serverShellCommand, args)
-	err = serverCmd.Start()
+	err := serverCmd.Start()
 	if err != nil {
 		logger.Fatalf("error starting language server process: %v", err)
 	}
@@ -120,8 +177,8 @@ func RunProxy(serverShellCommand string, args []string) {
 	var listenersWaitGroup sync.WaitGroup
 	listenersWaitGroup.Add(2)
 	listenersStopChan := make(chan struct{})
-	go requestsHandler.ListenServer(stdoutPipe, logger, listenersStopChan, &listenersWaitGroup)
-	go requestsHandler.ListenClient(stdinPipe, logger, listenersStopChan, &listenersWaitGroup)
+	go requestsHandler.ListenServer(lspwatchInstance.stdoutPipe, listenersStopChan, &listenersWaitGroup, logger)
+	go requestsHandler.ListenClient(lspwatchInstance.stdinPipe, listenersStopChan, &listenersWaitGroup, logger)
 
 	exitCode := 0
 
@@ -135,8 +192,8 @@ func RunProxy(serverShellCommand string, args []string) {
 			logger.Info("metrics exporter shutdown complete")
 		}
 
-		stdoutPipe.Close()
-		stdinPipe.Close()
+		lspwatchInstance.stdoutPipe.Close()
+		lspwatchInstance.stdinPipe.Close()
 
 		logger.Info("lspwatch shutdown cleanup complete. goodbye!")
 

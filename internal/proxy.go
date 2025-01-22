@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -11,18 +12,23 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// TODO: This file needs cleaning up
+
 type RequestsHandler struct {
 	Exporter      MetricsExporter
 	requestBuffer *orderedmap.OrderedMap[string, time.Time]
 }
 
-func NewRequestsHandler(logger *logrus.Logger) (*RequestsHandler, error) {
+func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHandler, error) {
 	// otelExporter, err := NewOTelMetricsExporter(logger)
 	// if err != nil {
 	// 	return nil, err
 	// }
 
-	datadogExporter := NewDatadogMetricsExporter()
+	datadogExporter, err := NewDatadogMetricsExporter(&cfg.Datadog)
+	if err != nil {
+		return nil, fmt.Errorf("error creating datadog exporter: %v", err)
+	}
 
 	return &RequestsHandler{
 		requestBuffer: orderedmap.NewOrderedMap[string, time.Time](),
@@ -32,9 +38,9 @@ func NewRequestsHandler(logger *logrus.Logger) (*RequestsHandler, error) {
 
 func (rh *RequestsHandler) ListenServer(
 	serverOutputPipe io.ReadCloser,
-	logger *logrus.Logger,
 	stopChan <-chan struct{},
 	wg *sync.WaitGroup,
+	logger *logrus.Logger,
 ) {
 	type ServerReadResult struct {
 		serverMessage LSPServerMessage
@@ -118,9 +124,9 @@ func (rh *RequestsHandler) ListenServer(
 
 func (rh *RequestsHandler) ListenClient(
 	serverInputPipe io.WriteCloser,
-	logger *logrus.Logger,
 	stopChan chan struct{},
 	wg *sync.WaitGroup,
+	logger *logrus.Logger,
 ) {
 	type ClientReadResult struct {
 		clientMessage LSPClientMessage

@@ -3,14 +3,15 @@ package internal
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/bombsimon/logrusr/v4"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -44,7 +45,7 @@ func (ome *OTelMetricsExporter) RegisterMetric(kind MetricKind, name string, des
 
 func (ome *OTelMetricsExporter) EmitMetric(metricPoint MetricRecording) error {
 	if histogram, ok := ome.histograms[metricPoint.Name]; ok {
-		// TODO: add timeout
+		// TODO: Add timeout
 		histogram.Record(context.Background(), metricPoint.Value)
 		return nil
 	} else {
@@ -67,59 +68,82 @@ func newResource() (*resource.Resource, error) {
 	)
 }
 
-func newMeterProvider(res *resource.Resource) (*sdkmetric.MeterProvider, error) {
-	// WARN: All configuration from With..() functions can be overriden
-	// by setting environment vars
-	metricExporter, err := otlpmetricgrpc.New(
-		context.Background(),
-		otlpmetricgrpc.WithInsecure(),
-		// TODO: Add these options for configuration
-		// otlpmetrichttp.WithEndpoint("localhost:4318"),
-		// otlpmetricgrpc.WithEndpointURL("http://localhost:4317/v1/metrics"),
-		// otlpmetrichttp.WithHeaders(),
-		// otlpmetrichttp.WithTLSClientConfig(),
-		// otlpmetrichttp.WithTimeout(),
-		// otlpmetrichttp.WithRetry(),
-		// otlpmetrichttp.WithProxy(),
-	)
-	if err != nil {
-		return nil, err
-	}
-
+func newOTelMeterProvider(exporter sdkmetric.Exporter, res *resource.Resource) *sdkmetric.MeterProvider {
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
 		sdkmetric.WithReader(
 			sdkmetric.NewPeriodicReader(
-				metricExporter,
+				exporter,
 				sdkmetric.WithInterval(30*time.Second),
 			),
 		),
 	)
 
-	return meterProvider, nil
+	return meterProvider
 }
 
-func newPropagator() propagation.TextMapPropagator {
-	return propagation.NewCompositeTextMapPropagator()
+// TODO: Support config options
+func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
+	metricExporter, err := otlpmetricgrpc.New(
+		context.Background(),
+		otlpmetricgrpc.WithInsecure(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating OTLP gRPC metrics exporter: %v", err)
+	}
+
+	return metricExporter, nil
+}
+
+// TODO: Implement
+func newOTLPMetricsHTTPExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
+	return nil, nil
+}
+
+func newFileMetricsExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
+	path := cfg.Directory
+
+	if path[len(path)-1] != '/' {
+		path += "/"
+	}
+	path += "lspwatch_metrics.json"
+
+	metricsExporter, err := stdoutmetric.New(
+		// TODO: use file
+		stdoutmetric.WithWriter(os.Stdout),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating OTLP file metrics exporter: %v", err)
+	}
+
+	return metricsExporter, nil
 }
 
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewOTelMetricsExporter(logger *logrus.Logger) (*OTelMetricsExporter, error) {
+func NewOTelMetricsExporter(cfg *openTelemetryConfig, logger *logrus.Logger) (*OTelMetricsExporter, error) {
 	logr := logrusr.New(logger)
 	otel.SetLogger(logr)
 
-	// TODO: Do I need this propagator thing?
-	// prop := newPropagator()
-	// otel.SetTextMapPropagator(prop)
 	res, err := newResource()
 	if err != nil {
 		return nil, err
 	}
 
-	meterProvider, err := newMeterProvider(res)
+	var metricExporter sdkmetric.Exporter
+	switch cfg.Protocol {
+	case "http":
+		metricExporter, err = newOTLPMetricsHTTPExporter(cfg)
+	case "grpc":
+		metricExporter, err = newOTLPMetricsGRPCExporter(cfg)
+	case "file":
+		metricExporter, err = newFileMetricsExporter(cfg)
+	}
+
 	if err != nil {
 		return nil, err
 	}
+
+	meterProvider := newOTelMeterProvider(metricExporter, res)
 
 	meter := meterProvider.Meter("lspwatch")
 

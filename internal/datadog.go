@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
+	"fmt"
 	"os"
 	"sort"
 	"sync"
@@ -39,45 +39,32 @@ func (dme *DatadogMetricsExporter) EmitMetric(metricPoint MetricRecording) error
 func (dme *DatadogMetricsExporter) Shutdown() error {
 	close(dme.metricsChan)
 	dme.wg.Wait()
-	dme.logFile.Close()
+	if dme.logFile != nil {
+		dme.logFile.Close()
+	}
 	return nil
 }
 
-// TODO: extract to helper
-func createLogger(enabled bool) (*logrus.Logger, *os.File) {
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
-
-	if enabled {
-		file, err := os.OpenFile("datadog.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			// TODO: Eventually logging should be optional
-			logger.Fatalf("error creating log file: %v", err)
-		}
-		logger.Out = file
-		return logger, file
+func NewDatadogMetricsExporter(cfg *datadogConfig) (*DatadogMetricsExporter, error) {
+	logger, logFile, err := CreateLogger("datadog.log", true)
+	if err != nil {
+		return nil, fmt.Errorf("error creating datadog logger: %v", err)
 	}
-
-	return logger, nil
-}
-
-func NewDatadogMetricsExporter() *DatadogMetricsExporter {
-	logger, logFile := createLogger(true)
 
 	ctx := context.WithValue(
 		context.Background(),
 		datadog.ContextAPIKeys,
 		map[string]datadog.APIKey{
 			"apiKeyAuth": {
-				Key: os.Getenv("DD_CLIENT_API_KEY"),
+				Key: os.Getenv(cfg.ClientApiKeyEnvVar),
 			},
 			"appKeyAuth": {
-				Key: os.Getenv("DD_CLIENT_APP_KEY"),
+				Key: os.Getenv(cfg.ClientAppKeyEnvVar),
 			},
 		},
 	)
-	cfg := datadog.NewConfiguration()
-	client := datadog.NewAPIClient(cfg)
+	datadogCfg := datadog.NewConfiguration()
+	client := datadog.NewAPIClient(datadogCfg)
 	metricsApi := datadogV2.NewMetricsApi(client)
 
 	metricsChan := make(chan MetricRecording)
@@ -94,7 +81,7 @@ func NewDatadogMetricsExporter() *DatadogMetricsExporter {
 	wg.Add(1)
 	go exporter.runMetricsBatchHandler(&wg)
 
-	return &exporter
+	return &exporter, nil
 }
 
 func computeTimeseriesId(metric MetricRecording) string {
