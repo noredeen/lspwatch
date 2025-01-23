@@ -72,7 +72,6 @@ func setUpLspwatch(serverShellCommand string, args []string) (lspwatchInstance, 
 		return lspwatchInstance{}, fmt.Errorf("error getting lspwatch config: %v", err)
 	}
 
-	// TODO: Make pointer?
 	if cfg.EnvFilePath != "" {
 		err = godotenv.Load(cfg.EnvFilePath)
 		if err != nil {
@@ -113,7 +112,17 @@ func getConfig(path string) (internal.LspwatchConfig, error) {
 		return internal.GetDefaultConfig(), nil
 	}
 
-	return internal.ReadLspwatchConfig(path)
+	fileBytes, err := os.ReadFile(path)
+	if err != nil {
+		return internal.LspwatchConfig{}, fmt.Errorf("error loading config file: %v", err)
+	}
+
+	cfg, err := internal.ReadLspwatchConfig(fileBytes)
+	if err != nil {
+		return internal.LspwatchConfig{}, fmt.Errorf("error parsing lspwatch config: %v", err)
+	}
+
+	return cfg, nil
 }
 
 func launchInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {

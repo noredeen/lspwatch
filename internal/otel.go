@@ -11,7 +11,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -106,6 +105,7 @@ func (e *customFileExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// TODO: File rotation
 func newCustomFileExporter(cfg *openTelemetryConfig) (*customFileExporter, error) {
 	path := cfg.Directory
 
@@ -162,35 +162,6 @@ func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, e
 // TODO: Implement
 func newOTLPMetricsHTTPExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
 	return nil, nil
-}
-
-func newOTLPMetricsFileExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
-	path := cfg.Directory
-
-	if path[len(path)-1] != '/' {
-		path += "/"
-	}
-	path += "lspwatch_metrics.json"
-
-	metricsFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		return nil, fmt.Errorf("error creating log file: %v", err)
-	}
-
-	// TODO: File rotation.
-	metricsExporter, err := stdoutmetric.New(
-		stdoutmetric.WithWriter(metricsFile),
-		stdoutmetric.WithTemporalitySelector(
-			func(instrumentKind sdkmetric.InstrumentKind) metricdata.Temporality {
-				return metricdata.DeltaTemporality
-			},
-		),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error creating OTLP file metrics exporter: %v", err)
-	}
-
-	return metricsExporter, nil
 }
 
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk

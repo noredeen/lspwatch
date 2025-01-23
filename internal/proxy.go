@@ -24,13 +24,13 @@ func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHa
 
 	switch cfg.Exporter {
 	case "opentelemetry":
-		otelExporter, err := NewMetricsOTelExporter(&cfg.OpenTelemetry, logger)
+		otelExporter, err := NewMetricsOTelExporter(cfg.OpenTelemetry, logger)
 		if err != nil {
 			return nil, fmt.Errorf("error creating OpenTelemetry exporter: %v", err)
 		}
 		exporter = otelExporter
 	case "datadog":
-		datadogExporter, err := NewDatadogMetricsExporter(&cfg.Datadog)
+		datadogExporter, err := NewDatadogMetricsExporter(cfg.Datadog)
 		if err != nil {
 			return nil, fmt.Errorf("error creating Datadog exporter: %v", err)
 		}
