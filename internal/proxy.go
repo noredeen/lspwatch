@@ -20,19 +20,30 @@ type RequestsHandler struct {
 }
 
 func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHandler, error) {
-	// otelExporter, err := NewOTelMetricsExporter(logger)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	var exporter MetricsExporter
 
-	datadogExporter, err := NewDatadogMetricsExporter(&cfg.Datadog)
-	if err != nil {
-		return nil, fmt.Errorf("error creating datadog exporter: %v", err)
+	switch cfg.Exporter {
+	case "opentelemetry":
+		otelExporter, err := NewMetricsOTelExporter(&cfg.OpenTelemetry, logger)
+		if err != nil {
+			return nil, fmt.Errorf("error creating OpenTelemetry exporter: %v", err)
+		}
+		exporter = otelExporter
+	case "datadog":
+		datadogExporter, err := NewDatadogMetricsExporter(&cfg.Datadog)
+		if err != nil {
+			return nil, fmt.Errorf("error creating Datadog exporter: %v", err)
+		}
+		exporter = datadogExporter
+	default:
+		return nil, fmt.Errorf("invalid exporter: %v", cfg.Exporter)
 	}
+
+	exporter.RegisterMetric(Histogram, "lspwatch.request.duration", "Request duration", "s")
 
 	return &RequestsHandler{
 		requestBuffer: orderedmap.NewOrderedMap[string, time.Time](),
-		Exporter:      datadogExporter,
+		Exporter:      exporter,
 	}, nil
 }
 
@@ -99,11 +110,14 @@ func (rh *RequestsHandler) ListenServer(
 							rh.requestBuffer.Delete(serverMessage.Id.Value)
 							duration := time.Since(requestTime)
 							metric := NewMetricRecording(
-								"request.duration",
+								"lspwatch.request.duration",
 								time.Now().Unix(),
 								duration.Seconds(),
 							)
-							rh.Exporter.EmitMetric(metric)
+							err := rh.Exporter.EmitMetric(metric)
+							if err != nil {
+								logger.Errorf("error emitting metric: %v", err)
+							}
 						} else {
 							logger.Infof("received response for unbuffered request with ID=%v", serverMessage.Id.Value)
 						}

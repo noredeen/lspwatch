@@ -13,7 +13,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // TODO:
@@ -114,18 +113,7 @@ func getConfig(path string) (internal.LspwatchConfig, error) {
 		return internal.GetDefaultConfig(), nil
 	}
 
-	dat, err := os.ReadFile(path)
-	if err != nil {
-		return internal.LspwatchConfig{}, fmt.Errorf("error reading config file: %v", err)
-	}
-
-	cfg := internal.LspwatchConfig{}
-	err = yaml.Unmarshal(dat, &cfg)
-	if err != nil {
-		return internal.LspwatchConfig{}, fmt.Errorf("error parsing config file: %v", err)
-	}
-
-	return cfg, nil
+	return internal.ReadLspwatchConfig(path)
 }
 
 func launchInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
@@ -160,6 +148,7 @@ func (lspwatchInstance *lspwatchInstance) runProxy() {
 	serverCmd := lspwatchInstance.serverCmd
 	requestsHandler := lspwatchInstance.requestsHandler
 
+	// TODO: Take args[1:]
 	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args)
 
 	err := serverCmd.Start()

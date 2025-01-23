@@ -39,24 +39,27 @@ func GetDefaultConfig() LspwatchConfig {
 	}
 }
 
-func ReadLspwatchConfig(path string) (*LspwatchConfig, error) {
+func ReadLspwatchConfig(path string) (LspwatchConfig, error) {
 	fileBytes, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %v", err)
+		return LspwatchConfig{}, fmt.Errorf("failed to read config file: %v", err)
 	}
 
 	config := LspwatchConfig{}
 	err = yaml.Unmarshal(fileBytes, &config)
 	if err != nil {
-		return nil, fmt.Errorf("error decoding config YAML: %v", err)
+		return LspwatchConfig{}, fmt.Errorf("error decoding config YAML: %v", err)
 	}
 
 	validate := validator.New(validator.WithRequiredStructEnabled())
 	err = validate.Struct(config)
-	// TODO: Return erros
-	// if validationErrors != nil {
-	// 	return nil, fmt.Errorf("invalid lspwatch configuration: %v", err)
-	// }
+	if err != nil {
+		if _, ok := err.(*validator.InvalidValidationError); ok {
+			return LspwatchConfig{}, fmt.Errorf("internal validation error: %v", err)
+		}
 
-	return &config, nil
+		return LspwatchConfig{}, fmt.Errorf("invalid lspwatch configuration: %v", err)
+	}
+
+	return config, nil
 }

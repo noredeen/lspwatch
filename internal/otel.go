@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -13,19 +14,29 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-type OTelMetricsExporter struct {
+type MetricsOTelExporter struct {
 	meterProvider *sdkmetric.MeterProvider
 	meter         metric.Meter
 	histograms    map[string]metric.Float64Histogram
 }
 
-var _ MetricsExporter = &OTelMetricsExporter{}
+var _ MetricsExporter = &MetricsOTelExporter{}
+var _ sdkmetric.Exporter = &customFileExporter{}
 
-func (ome *OTelMetricsExporter) RegisterMetric(kind MetricKind, name string, description string, unit string) error {
+// An exporter that ignores ResourceMetrics objects which don't
+// have any ScopeMetrics. The default stdoutmetric exporter with
+// DeltaTemporality will export a redundant object for each
+// reading period.
+type customFileExporter struct {
+	file *os.File
+}
+
+func (ome *MetricsOTelExporter) RegisterMetric(kind MetricKind, name string, description string, unit string) error {
 	switch kind {
 	case Histogram:
 		hist, err := ome.meter.Float64Histogram(
@@ -43,7 +54,7 @@ func (ome *OTelMetricsExporter) RegisterMetric(kind MetricKind, name string, des
 	return nil
 }
 
-func (ome *OTelMetricsExporter) EmitMetric(metricPoint MetricRecording) error {
+func (ome *MetricsOTelExporter) EmitMetric(metricPoint MetricRecording) error {
 	if histogram, ok := ome.histograms[metricPoint.Name]; ok {
 		// TODO: Add timeout
 		histogram.Record(context.Background(), metricPoint.Value)
@@ -54,8 +65,61 @@ func (ome *OTelMetricsExporter) EmitMetric(metricPoint MetricRecording) error {
 }
 
 // NOTE: Might have to rework this into invoking a function stored in the struct.
-func (ome *OTelMetricsExporter) Shutdown() error {
+func (ome *MetricsOTelExporter) Shutdown() error {
 	return ome.meterProvider.Shutdown(context.Background())
+}
+
+// TODO: Honor the context?
+func (e *customFileExporter) Export(ctx context.Context, data *metricdata.ResourceMetrics) error {
+	scopeMetrics := data.ScopeMetrics
+	if len(scopeMetrics) == 0 {
+		return nil
+	}
+
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+
+	_, err = e.file.Write(jsonBytes)
+	return err
+}
+
+func (e *customFileExporter) Aggregation(instrumentKind sdkmetric.InstrumentKind) sdkmetric.Aggregation {
+	return sdkmetric.DefaultAggregationSelector(instrumentKind)
+}
+
+func (e *customFileExporter) Temporality(_ sdkmetric.InstrumentKind) metricdata.Temporality {
+	return metricdata.DeltaTemporality
+}
+
+func (e *customFileExporter) ForceFlush(ctx context.Context) error {
+	return nil
+}
+
+func (e *customFileExporter) Shutdown(ctx context.Context) error {
+	err := e.file.Close()
+	if err != nil {
+		return fmt.Errorf("error closing metrics file: %v", err)
+	}
+
+	return nil
+}
+
+func newCustomFileExporter(cfg *openTelemetryConfig) (*customFileExporter, error) {
+	path := cfg.Directory
+
+	if path[len(path)-1] != '/' {
+		path += "/"
+	}
+	path += "lspwatch_metrics.json"
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("error creating metrics file: %v", err)
+	}
+
+	return &customFileExporter{file: file}, nil
 }
 
 func newResource() (*resource.Resource, error) {
@@ -100,7 +164,7 @@ func newOTLPMetricsHTTPExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, e
 	return nil, nil
 }
 
-func newFileMetricsExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
+func newOTLPMetricsFileExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
 	path := cfg.Directory
 
 	if path[len(path)-1] != '/' {
@@ -108,9 +172,19 @@ func newFileMetricsExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error
 	}
 	path += "lspwatch_metrics.json"
 
+	metricsFile, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("error creating log file: %v", err)
+	}
+
+	// TODO: File rotation.
 	metricsExporter, err := stdoutmetric.New(
-		// TODO: use file
-		stdoutmetric.WithWriter(os.Stdout),
+		stdoutmetric.WithWriter(metricsFile),
+		stdoutmetric.WithTemporalitySelector(
+			func(instrumentKind sdkmetric.InstrumentKind) metricdata.Temporality {
+				return metricdata.DeltaTemporality
+			},
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating OTLP file metrics exporter: %v", err)
@@ -120,8 +194,9 @@ func newFileMetricsExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error
 }
 
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewOTelMetricsExporter(cfg *openTelemetryConfig, logger *logrus.Logger) (*OTelMetricsExporter, error) {
+func NewMetricsOTelExporter(cfg *openTelemetryConfig, logger *logrus.Logger) (*MetricsOTelExporter, error) {
 	logr := logrusr.New(logger)
+	// TODO: I don't think this works.
 	otel.SetLogger(logr)
 
 	res, err := newResource()
@@ -136,7 +211,7 @@ func NewOTelMetricsExporter(cfg *openTelemetryConfig, logger *logrus.Logger) (*O
 	case "grpc":
 		metricExporter, err = newOTLPMetricsGRPCExporter(cfg)
 	case "file":
-		metricExporter, err = newFileMetricsExporter(cfg)
+		metricExporter, err = newCustomFileExporter(cfg)
 	}
 
 	if err != nil {
@@ -147,8 +222,9 @@ func NewOTelMetricsExporter(cfg *openTelemetryConfig, logger *logrus.Logger) (*O
 
 	meter := meterProvider.Meter("lspwatch")
 
-	return &OTelMetricsExporter{
+	return &MetricsOTelExporter{
 		meterProvider: meterProvider,
 		meter:         meter,
+		histograms:    make(map[string]metric.Float64Histogram),
 	}, nil
 }
