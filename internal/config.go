@@ -30,6 +30,8 @@ type TLSConfig struct {
 type datadogConfig struct {
 	ClientApiKeyEnvVar string `yaml:"client_api_key_env_var" validate:"required"`
 	ClientAppKeyEnvVar string `yaml:"client_app_key_env_var" validate:"required"`
+	Site               string `yaml:"site" validate:"omitempty,oneof=datadoghq.com us3.datadoghq.com us5.datadoghq.com ap1.datadoghq.com datadoghq.eu ddog-gov.com"`
+	DisableCompression *bool  `yaml:"disable_compression" validate:"omitnil"`
 }
 
 type LspwatchConfig struct {

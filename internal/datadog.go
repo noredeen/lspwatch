@@ -63,21 +63,38 @@ func NewDatadogMetricsExporter(cfg *datadogConfig) (*DatadogMetricsExporter, err
 			},
 		},
 	)
+
+	if cfg.Site != "" {
+		ctx = context.WithValue(
+			ctx,
+			datadog.ContextServerVariables,
+			map[string]string{
+				"site": cfg.Site,
+			},
+		)
+	}
+
 	datadogCfg := datadog.NewConfiguration()
+
+	if cfg.DisableCompression != nil {
+		datadogCfg.Compress = !*cfg.DisableCompression
+	}
+
 	client := datadog.NewAPIClient(datadogCfg)
 	metricsApi := datadogV2.NewMetricsApi(client)
 
+	var wg sync.WaitGroup
 	metricsChan := make(chan MetricRecording)
 
 	exporter := DatadogMetricsExporter{
 		metricsApiClient: metricsApi,
 		datadogContext:   ctx,
 		metricsChan:      metricsChan,
+		wg:               &wg,
 		logger:           logger,
 		logFile:          logFile,
 	}
 
-	var wg sync.WaitGroup
 	wg.Add(1)
 	go exporter.runMetricsBatchHandler(&wg)
 
