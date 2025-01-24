@@ -14,7 +14,7 @@ type openTelemetryConfig struct {
 	Directory          string            `yaml:"directory" validate:"required_if=Protocol file,omitempty,min=1"`
 	MetricsEndpointURL string            `yaml:"metrics_endpoint_url" validate:"required_unless=Protocol file,omitempty"`
 	TLS                TLSConfig         `yaml:"tls" validate:"omitempty"`
-	Compressor         string            `yaml:"compressor" validate:"omitempty,oneof=gzip"`
+	Compression        string            `yaml:"compression" validate:"omitempty,oneof=gzip"`
 	Headers            map[string]string `yaml:"headers" validate:"omitempty"`
 	Timeout            *int              `yaml:"timeout" validate:"omitnil"`
 }

@@ -39,13 +39,13 @@ exporter: opentelemetry
 opentelemetry:
   protocol: grpc
   metrics_endpoint_url: http://localhost:4317/v1/metrics
-  compressor: gzip`,
+  compression: gzip`,
 			expectedCfg: LspwatchConfig{
 				Exporter: "opentelemetry",
 				OpenTelemetry: &openTelemetryConfig{
 					Protocol:           "grpc",
 					MetricsEndpointURL: "http://localhost:4317/v1/metrics",
-					Compressor:         "gzip",
+					Compression:        "gzip",
 				},
 			},
 			err: false,
@@ -59,7 +59,7 @@ opentelemetry:
   protocol: grpc
   metrics_endpoint_url: http://localhost:4317/v1/metrics
   timeout: 10
-  compressor: gzip
+  compression: gzip
   headers:
     foo: bar
   tls:
@@ -72,7 +72,7 @@ opentelemetry:
 				OpenTelemetry: &openTelemetryConfig{
 					Protocol:           "grpc",
 					MetricsEndpointURL: "http://localhost:4317/v1/metrics",
-					Compressor:         "gzip",
+					Compression:        "gzip",
 					Headers:            map[string]string{"foo": "bar"},
 					Timeout:            &[]int{10}[0],
 					TLS: TLSConfig{
@@ -81,6 +81,23 @@ opentelemetry:
 						CertFile: "./cert.pem",
 						KeyFile:  "./key.pem",
 					},
+				},
+			},
+			err: false,
+		},
+
+		{
+			name: "opentelemetry with http protocol",
+			rawYaml: `
+exporter: opentelemetry
+opentelemetry:
+  protocol: http
+  metrics_endpoint_url: http://localhost:4318/v1/metrics`,
+			expectedCfg: LspwatchConfig{
+				Exporter: "opentelemetry",
+				OpenTelemetry: &openTelemetryConfig{
+					Protocol:           "http",
+					MetricsEndpointURL: "http://localhost:4318/v1/metrics",
 				},
 			},
 			err: false,

@@ -13,12 +13,18 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"google.golang.org/grpc/credentials"
+)
+
+const (
+	otlpHandshakeTimeout = 7 * time.Second
+	emitMetricTimeout    = 4 * time.Second
 )
 
 type MetricsOTelExporter struct {
@@ -28,17 +34,25 @@ type MetricsOTelExporter struct {
 }
 
 var _ MetricsExporter = &MetricsOTelExporter{}
-var _ sdkmetric.Exporter = &customFileExporter{}
+var _ sdkmetric.Exporter = &fileExporter{}
 
-// An exporter that ignores ResourceMetrics objects which don't
-// have any ScopeMetrics. The default stdoutmetric exporter with
-// DeltaTemporality will export a redundant object for each
-// reading period.
-type customFileExporter struct {
+// Why not the stdoutmetric exporter from otel/exporters?
+//
+// stdoutmetric with DeltaTemporality will export an object for each
+// reading period, even if no new metrics were recorded. This custom
+// exporter will not export objects that don't contain any ScopeMetrics
+// (new recordings since last reading period). Will also be useful for
+// a future automatic file rotation feature.
+type fileExporter struct {
 	file *os.File
 }
 
-func (ome *MetricsOTelExporter) RegisterMetric(kind MetricKind, name string, description string, unit string) error {
+func (ome *MetricsOTelExporter) RegisterMetric(
+	kind MetricKind,
+	name string,
+	description string,
+	unit string,
+) error {
 	switch kind {
 	case Histogram:
 		hist, err := ome.meter.Float64Histogram(
@@ -58,8 +72,10 @@ func (ome *MetricsOTelExporter) RegisterMetric(kind MetricKind, name string, des
 
 func (ome *MetricsOTelExporter) EmitMetric(metricPoint MetricRecording) error {
 	if histogram, ok := ome.histograms[metricPoint.Name]; ok {
-		// TODO: Add timeout
-		histogram.Record(context.Background(), metricPoint.Value)
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), emitMetricTimeout)
+		defer cancel()
+
+		histogram.Record(timeoutCtx, metricPoint.Value)
 		return nil
 	} else {
 		return fmt.Errorf("histogram not found for metric: %s", metricPoint.Name)
@@ -72,7 +88,7 @@ func (ome *MetricsOTelExporter) Shutdown() error {
 }
 
 // TODO: Honor the context?
-func (e *customFileExporter) Export(ctx context.Context, data *metricdata.ResourceMetrics) error {
+func (e *fileExporter) Export(ctx context.Context, data *metricdata.ResourceMetrics) error {
 	scopeMetrics := data.ScopeMetrics
 	if len(scopeMetrics) == 0 {
 		return nil
@@ -87,19 +103,19 @@ func (e *customFileExporter) Export(ctx context.Context, data *metricdata.Resour
 	return err
 }
 
-func (e *customFileExporter) Aggregation(instrumentKind sdkmetric.InstrumentKind) sdkmetric.Aggregation {
+func (e *fileExporter) Aggregation(instrumentKind sdkmetric.InstrumentKind) sdkmetric.Aggregation {
 	return sdkmetric.DefaultAggregationSelector(instrumentKind)
 }
 
-func (e *customFileExporter) Temporality(_ sdkmetric.InstrumentKind) metricdata.Temporality {
+func (e *fileExporter) Temporality(_ sdkmetric.InstrumentKind) metricdata.Temporality {
 	return metricdata.DeltaTemporality
 }
 
-func (e *customFileExporter) ForceFlush(ctx context.Context) error {
+func (e *fileExporter) ForceFlush(ctx context.Context) error {
 	return nil
 }
 
-func (e *customFileExporter) Shutdown(ctx context.Context) error {
+func (e *fileExporter) Shutdown(ctx context.Context) error {
 	err := e.file.Close()
 	if err != nil {
 		return fmt.Errorf("error closing metrics file: %v", err)
@@ -108,8 +124,35 @@ func (e *customFileExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// TODO: File rotation
-func newCustomFileExporter(cfg *openTelemetryConfig) (*customFileExporter, error) {
+func newTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
+	tlsCfg := tls.Config{}
+
+	tlsCfg.InsecureSkipVerify = cfg.InsecureSkipVerify
+	if cfg.CAFile != "" {
+		caPem, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("error reading CA file: %v", err)
+		}
+		rootCAs := x509.NewCertPool()
+		if !rootCAs.AppendCertsFromPEM(caPem) {
+			return nil, fmt.Errorf("failed to append CA cert")
+		}
+		tlsCfg.ClientCAs = rootCAs
+	}
+
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("error loading TLS cert/key pair: %v", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
+	}
+
+	return &tlsCfg, nil
+}
+
+// TODO: File rotation.
+func newFileExporter(cfg *openTelemetryConfig) (*fileExporter, error) {
 	path := cfg.Directory
 
 	if path[len(path)-1] != '/' {
@@ -122,7 +165,7 @@ func newCustomFileExporter(cfg *openTelemetryConfig) (*customFileExporter, error
 		return nil, fmt.Errorf("error creating metrics file: %v", err)
 	}
 
-	return &customFileExporter{file: file}, nil
+	return &fileExporter{file: file}, nil
 }
 
 func newResource() (*resource.Resource, error) {
@@ -155,29 +198,12 @@ func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, e
 		otlpmetricgrpc.WithHeaders(cfg.Headers),
 	}
 
-	tlsCfg := tls.Config{}
-	tlsCfg.InsecureSkipVerify = cfg.TLS.InsecureSkipVerify
-	if cfg.TLS.CAFile != "" {
-		caPem, err := os.ReadFile(cfg.TLS.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("error reading CA file: %v", err)
-		}
-		rootCAs := x509.NewCertPool()
-		if !rootCAs.AppendCertsFromPEM(caPem) {
-			return nil, fmt.Errorf("failed to append CA cert")
-		}
-		tlsCfg.ClientCAs = rootCAs
+	tlsCfg, err := newTLSConfig(&cfg.TLS)
+	if err != nil {
+		return nil, fmt.Errorf("error generating TLS config: %v", err)
 	}
 
-	if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("error loading TLS cert/key pair: %v", err)
-		}
-		tlsCfg.Certificates = []tls.Certificate{cert}
-	}
-
-	tlsCredential := credentials.NewTLS(&tlsCfg)
+	tlsCredential := credentials.NewTLS(tlsCfg)
 	if !cfg.TLS.Insecure {
 		options = append(options, otlpmetricgrpc.WithTLSCredentials(tlsCredential))
 	} else {
@@ -188,12 +214,14 @@ func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, e
 		options = append(options, otlpmetricgrpc.WithTimeout(time.Duration(*cfg.Timeout)*time.Second))
 	}
 
-	if cfg.Compressor != "" {
-		options = append(options, otlpmetricgrpc.WithCompressor(cfg.Compressor))
+	if cfg.Compression != "" {
+		options = append(options, otlpmetricgrpc.WithCompressor(cfg.Compression))
 	}
 
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), otlpHandshakeTimeout)
+	defer cancel()
 	metricExporter, err := otlpmetricgrpc.New(
-		context.Background(),
+		timeoutCtx,
 		options...,
 	)
 	if err != nil {
@@ -203,9 +231,43 @@ func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, e
 	return metricExporter, nil
 }
 
-// TODO: Implement
 func newOTLPMetricsHTTPExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
-	return nil, nil
+	options := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithEndpointURL(cfg.MetricsEndpointURL),
+		otlpmetrichttp.WithHeaders(cfg.Headers),
+	}
+
+	tlsCfg, err := newTLSConfig(&cfg.TLS)
+	if err != nil {
+		return nil, fmt.Errorf("error generating TLS config: %v", err)
+	}
+
+	if !cfg.TLS.Insecure {
+		options = append(options, otlpmetrichttp.WithTLSClientConfig(tlsCfg))
+	} else {
+		options = append(options, otlpmetrichttp.WithInsecure())
+	}
+
+	if cfg.Timeout != nil {
+		otlpmetrichttp.WithTimeout(time.Duration(*cfg.Timeout) * time.Second)
+	}
+
+	if cfg.Compression != "" {
+		// Only one option
+		options = append(options, otlpmetrichttp.WithCompression(otlpmetrichttp.GzipCompression))
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), otlpHandshakeTimeout)
+	defer cancel()
+	metricExporter, err := otlpmetrichttp.New(
+		timeoutCtx,
+		options...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating OTLP HTTP metrics exporter: %v", err)
+	}
+
+	return metricExporter, nil
 }
 
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
@@ -226,7 +288,7 @@ func NewMetricsOTelExporter(cfg *openTelemetryConfig, logger *logrus.Logger) (*M
 	case "grpc":
 		metricExporter, err = newOTLPMetricsGRPCExporter(cfg)
 	case "file":
-		metricExporter, err = newCustomFileExporter(cfg)
+		metricExporter, err = newFileExporter(cfg)
 	}
 
 	if err != nil {
