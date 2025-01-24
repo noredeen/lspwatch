@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -11,30 +12,46 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// TODO: This file needs cleaning up
+
 type RequestsHandler struct {
 	Exporter      MetricsExporter
 	requestBuffer *orderedmap.OrderedMap[string, time.Time]
 }
 
-func NewRequestsHandler(logger *logrus.Logger) (*RequestsHandler, error) {
-	// otelExporter, err := NewOTelMetricsExporter(logger)
-	// if err != nil {
-	// 	return nil, err
-	// }
+func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHandler, error) {
+	var exporter MetricsExporter
 
-	datadogExporter := NewDatadogMetricsExporter()
+	switch cfg.Exporter {
+	case "opentelemetry":
+		otelExporter, err := NewMetricsOTelExporter(cfg.OpenTelemetry, logger)
+		if err != nil {
+			return nil, fmt.Errorf("error creating OpenTelemetry exporter: %v", err)
+		}
+		exporter = otelExporter
+	case "datadog":
+		datadogExporter, err := NewDatadogMetricsExporter(cfg.Datadog)
+		if err != nil {
+			return nil, fmt.Errorf("error creating Datadog exporter: %v", err)
+		}
+		exporter = datadogExporter
+	default:
+		return nil, fmt.Errorf("invalid exporter: %v", cfg.Exporter)
+	}
+
+	exporter.RegisterMetric(Histogram, "lspwatch.request.duration", "Request duration", "s")
 
 	return &RequestsHandler{
 		requestBuffer: orderedmap.NewOrderedMap[string, time.Time](),
-		Exporter:      datadogExporter,
+		Exporter:      exporter,
 	}, nil
 }
 
 func (rh *RequestsHandler) ListenServer(
 	serverOutputPipe io.ReadCloser,
-	logger *logrus.Logger,
 	stopChan <-chan struct{},
 	wg *sync.WaitGroup,
+	logger *logrus.Logger,
 ) {
 	type ServerReadResult struct {
 		serverMessage LSPServerMessage
@@ -93,11 +110,14 @@ func (rh *RequestsHandler) ListenServer(
 							rh.requestBuffer.Delete(serverMessage.Id.Value)
 							duration := time.Since(requestTime)
 							metric := NewMetricRecording(
-								"request.duration",
+								"lspwatch.request.duration",
 								time.Now().Unix(),
 								duration.Seconds(),
 							)
-							rh.Exporter.EmitMetric(metric)
+							err := rh.Exporter.EmitMetric(metric)
+							if err != nil {
+								logger.Errorf("error emitting metric: %v", err)
+							}
 						} else {
 							logger.Infof("received response for unbuffered request with ID=%v", serverMessage.Id.Value)
 						}
@@ -118,9 +138,9 @@ func (rh *RequestsHandler) ListenServer(
 
 func (rh *RequestsHandler) ListenClient(
 	serverInputPipe io.WriteCloser,
-	logger *logrus.Logger,
 	stopChan chan struct{},
 	wg *sync.WaitGroup,
+	logger *logrus.Logger,
 ) {
 	type ClientReadResult struct {
 		clientMessage LSPClientMessage

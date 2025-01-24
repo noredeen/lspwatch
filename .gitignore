@@ -10,4 +10,5 @@ main
 *.out
 *.log
 *.env
+lspwatch_metrics.json
 go.work
