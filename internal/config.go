@@ -10,12 +10,21 @@ import (
 // TODO: These validations are borked :(
 
 type openTelemetryConfig struct {
-	Protocol  string             `yaml:"protocol" validate:"required,oneof=grpc http file"`
-	Directory string             `yaml:"directory" validate:"required_if=Protocol file,min=1,omitempty"`
-	Endpoint  string             `yaml:"metrics_endpoint" validate:"required_unless=Protocol file,omitempty"`
-	Headers   *map[string]string `yaml:"headers"`
-	Timeout   *int               `yaml:"timeout"`
-	// TODO: protocol, TLS, retry, proxy, ...
+	Protocol           string            `yaml:"protocol" validate:"required,oneof=grpc http file"`
+	Directory          string            `yaml:"directory" validate:"required_if=Protocol file,omitempty,min=1"`
+	MetricsEndpointURL string            `yaml:"metrics_endpoint_url" validate:"required_unless=Protocol file,omitempty"`
+	TLS                TLSConfig         `yaml:"tls" validate:"omitempty"`
+	Compressor         string            `yaml:"compressor" validate:"omitempty,oneof=gzip"`
+	Headers            map[string]string `yaml:"headers" validate:"omitempty"`
+	Timeout            *int              `yaml:"timeout" validate:"omitnil"`
+}
+
+type TLSConfig struct {
+	Insecure           bool   `yaml:"insecure"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+	CAFile             string `yaml:"ca_file" validate:"omitempty,filepath"`
+	CertFile           string `yaml:"cert_file" validate:"omitempty,filepath"`
+	KeyFile            string `yaml:"key_file" validate:"omitempty,filepath"`
 }
 
 type datadogConfig struct {

@@ -2,6 +2,8 @@ package internal
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"google.golang.org/grpc/credentials"
 )
 
 type MetricsOTelExporter struct {
@@ -146,11 +149,52 @@ func newOTelMeterProvider(exporter sdkmetric.Exporter, res *resource.Resource) *
 	return meterProvider
 }
 
-// TODO: Support config options
 func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
+	options := []otlpmetricgrpc.Option{
+		otlpmetricgrpc.WithEndpointURL(cfg.MetricsEndpointURL),
+		otlpmetricgrpc.WithHeaders(cfg.Headers),
+	}
+
+	tlsCfg := tls.Config{}
+	tlsCfg.InsecureSkipVerify = cfg.TLS.InsecureSkipVerify
+	if cfg.TLS.CAFile != "" {
+		caPem, err := os.ReadFile(cfg.TLS.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("error reading CA file: %v", err)
+		}
+		rootCAs := x509.NewCertPool()
+		if !rootCAs.AppendCertsFromPEM(caPem) {
+			return nil, fmt.Errorf("failed to append CA cert")
+		}
+		tlsCfg.ClientCAs = rootCAs
+	}
+
+	if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("error loading TLS cert/key pair: %v", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
+	}
+
+	tlsCredential := credentials.NewTLS(&tlsCfg)
+	if !cfg.TLS.Insecure {
+		options = append(options, otlpmetricgrpc.WithTLSCredentials(tlsCredential))
+	} else {
+		options = append(options, otlpmetricgrpc.WithInsecure())
+	}
+
+	if cfg.Timeout != nil {
+		options = append(options, otlpmetricgrpc.WithTimeout(time.Duration(*cfg.Timeout)*time.Second))
+	}
+
+	if cfg.Compressor != "" {
+		options = append(options, otlpmetricgrpc.WithCompressor(cfg.Compressor))
+	}
+
 	metricExporter, err := otlpmetricgrpc.New(
 		context.Background(),
-		otlpmetricgrpc.WithInsecure(),
+		options...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating OTLP gRPC metrics exporter: %v", err)

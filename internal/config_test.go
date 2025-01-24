@@ -33,6 +33,60 @@ opentelemetry:
 		},
 
 		{
+			name: "opentelemetry with grpc protocol and default tls",
+			rawYaml: `
+exporter: opentelemetry
+opentelemetry:
+  protocol: grpc
+  metrics_endpoint_url: http://localhost:4317/v1/metrics
+  compressor: gzip`,
+			expectedCfg: LspwatchConfig{
+				Exporter: "opentelemetry",
+				OpenTelemetry: &openTelemetryConfig{
+					Protocol:           "grpc",
+					MetricsEndpointURL: "http://localhost:4317/v1/metrics",
+					Compressor:         "gzip",
+				},
+			},
+			err: false,
+		},
+
+		{
+			name: "opentelemetry with grpc protocol all the bells and whistles",
+			rawYaml: `
+exporter: opentelemetry
+opentelemetry:
+  protocol: grpc
+  metrics_endpoint_url: http://localhost:4317/v1/metrics
+  timeout: 10
+  compressor: gzip
+  headers:
+    foo: bar
+  tls:
+    insecure: true
+    ca_file: ./ca.pem
+    cert_file: ./cert.pem
+    key_file: ./key.pem`,
+			expectedCfg: LspwatchConfig{
+				Exporter: "opentelemetry",
+				OpenTelemetry: &openTelemetryConfig{
+					Protocol:           "grpc",
+					MetricsEndpointURL: "http://localhost:4317/v1/metrics",
+					Compressor:         "gzip",
+					Headers:            map[string]string{"foo": "bar"},
+					Timeout:            &[]int{10}[0],
+					TLS: TLSConfig{
+						Insecure: true,
+						CAFile:   "./ca.pem",
+						CertFile: "./cert.pem",
+						KeyFile:  "./key.pem",
+					},
+				},
+			},
+			err: false,
+		},
+
+		{
 			name: "missing opentelemetry config",
 			rawYaml: `
 exporter: opentelemetry
