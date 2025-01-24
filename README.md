@@ -1,6 +1,6 @@
 # lspwatch
 
-`lspwatch` is a configurable proxy for the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/). It produces and exports telemetry for the language server and LSP request/response communication.
+`lspwatch` is a configurable stdin/stdout proxy for the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/). It produces and exports telemetry for the language server and LSP request/response communication.
 
 <div align="center"><img align="center" width="780" alt="Screenshot 2025-01-18 at 7 25 44 PM" src="https://github.com/user-attachments/assets/119e046f-8c09-41ea-81db-ff45e9ec8d27" /></div>
 
@@ -37,7 +37,7 @@ TODO
 
 ## Usage
 
-`lspwatch` is a binary that stands in place of the language server. If your language server is invoked using e.g `clangd ...`, then you can run `lspwatch -- clangd ...`.
+`lspwatch` is an executable that stands in place of the language server. If your language server is invoked using e.g `clangd ...`, then you can run `lspwatch -- clangd ...`.
 
 Every editor that supports LSP will have a way to configure the  command used to invoke the language server. Reference the documenation of your editor or language extension for details.
 
@@ -45,6 +45,6 @@ TODO: Show examples.
 
 ## Configuration
 
-`lspwatch` can be configured with a YAML configuration file. Use the `--config` or `-c` flag to specify the path.
+`lspwatch` can be configured with a YAML file. Use the `--config` or `-c` flag to specify the path.
 
 TODO
