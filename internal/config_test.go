@@ -75,7 +75,7 @@ opentelemetry:
 					Compression:        "gzip",
 					Headers:            map[string]string{"foo": "bar"},
 					Timeout:            &[]int{10}[0],
-					TLS: TLSConfig{
+					TLS: tlsConfig{
 						Insecure: true,
 						CAFile:   "./ca.pem",
 						CertFile: "./cert.pem",

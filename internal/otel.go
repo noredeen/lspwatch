@@ -47,29 +47,25 @@ type fileExporter struct {
 	file *os.File
 }
 
-func (ome *MetricsOTelExporter) RegisterMetric(
-	kind MetricKind,
-	name string,
-	description string,
-	unit string,
-) error {
-	switch kind {
+func (ome *MetricsOTelExporter) RegisterMetric(registration MetricRegistration) error {
+	switch registration.Kind {
 	case Histogram:
 		hist, err := ome.meter.Float64Histogram(
-			name,
-			metric.WithDescription(description),
-			metric.WithUnit(unit),
+			registration.Name,
+			metric.WithDescription(registration.Description),
+			metric.WithUnit(registration.Unit),
 		)
 		if err != nil {
 			return err
 		}
 
-		ome.histograms[name] = hist
+		ome.histograms[registration.Name] = hist
 	}
 
 	return nil
 }
 
+// TODO: Add tags.
 func (ome *MetricsOTelExporter) EmitMetric(metricPoint MetricRecording) error {
 	if histogram, ok := ome.histograms[metricPoint.Name]; ok {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), emitMetricTimeout)
@@ -124,7 +120,7 @@ func (e *fileExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func newTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
+func newTLSConfig(cfg *tlsConfig) (*tls.Config, error) {
 	tlsCfg := tls.Config{}
 
 	tlsCfg.InsecureSkipVerify = cfg.InsecureSkipVerify

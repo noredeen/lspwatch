@@ -18,7 +18,7 @@ import (
 // TODO:
 // - [x] support -c or --config-file
 // - [x] finish datadog exporter
-// - [ ] finish otel file exporter
+// - [x] finish otel file exporter
 // - [ ] report resource consumption for server process
 // - [ ] make request buffer thread-safe?
 // - [ ] better log file management
@@ -183,7 +183,7 @@ func (lspwatchInstance *lspwatchInstance) runProxy() {
 	defer func() {
 		// Wait for all server and client listeners to exit
 		listenersWaitGroup.Wait()
-		err := requestsHandler.Exporter.Shutdown()
+		err := requestsHandler.MetricsRegistry.Shutdown()
 		if err != nil {
 			logger.Errorf("error shutting down metrics exporter: %v", err)
 		} else {

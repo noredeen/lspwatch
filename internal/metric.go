@@ -1,6 +1,6 @@
 package internal
 
-type MetricKind int
+import "fmt"
 
 const (
 	Counter MetricKind = iota
@@ -8,9 +8,25 @@ const (
 	Histogram
 )
 
-type Tag struct {
-	Key   string
-	Value string
+const (
+	RequestDuration AvailableMetric = "lspwatch.request.duration"
+	ServerRSS       AvailableMetric = "lspwatch.server.rss"
+)
+
+type AvailableMetric string
+type MetricKind int
+
+type MetricsRegistry struct {
+	available map[AvailableMetric]MetricRegistration
+	enabled   map[AvailableMetric]bool
+	exporter  MetricsExporter
+}
+
+type MetricRegistration struct {
+	Kind        MetricKind
+	Name        string
+	Description string
+	Unit        string
 }
 
 type MetricRecording struct {
@@ -20,10 +36,54 @@ type MetricRecording struct {
 	Tags      *map[string]string
 }
 
+type Tag struct {
+	Key   string
+	Value string
+}
+
 type MetricsExporter interface {
-	RegisterMetric(kind MetricKind, name string, description string, unit string) error
+	RegisterMetric(registration MetricRegistration) error
 	EmitMetric(metric MetricRecording) error
 	Shutdown() error
+}
+
+func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
+	registration, ok := mr.available[metric]
+	if !ok {
+		return fmt.Errorf("metric %s is not supported", metric)
+	}
+
+	err := mr.exporter.RegisterMetric(registration)
+	if err != nil {
+		return err
+	}
+
+	mr.enabled[metric] = true
+	return nil
+}
+
+func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
+	if !mr.enabled[AvailableMetric(metric.Name)] {
+		return nil
+	}
+
+	return mr.exporter.EmitMetric(metric)
+}
+
+func (mr *MetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
+	return mr.enabled[AvailableMetric(metric)]
+}
+
+func (mr *MetricsRegistry) Shutdown() error {
+	return mr.exporter.Shutdown()
+}
+
+func NewMetricsRegistry(exporter MetricsExporter, availableMetrics map[AvailableMetric]MetricRegistration) *MetricsRegistry {
+	return &MetricsRegistry{
+		available: availableMetrics,
+		enabled:   make(map[AvailableMetric]bool),
+		exporter:  exporter,
+	}
 }
 
 func NewTag(key string, value string) Tag {

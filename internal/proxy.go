@@ -20,8 +20,45 @@ type RequestBookmark struct {
 }
 
 type RequestsHandler struct {
-	Exporter      MetricsExporter
-	requestBuffer *orderedmap.OrderedMap[string, RequestBookmark]
+	MetricsRegistry *MetricsRegistry
+	requestBuffer   *orderedmap.OrderedMap[string, RequestBookmark]
+}
+
+var availableLSPMetrics = map[AvailableMetric]MetricRegistration{
+	RequestDuration: {
+		Kind:        Histogram,
+		Name:        "lspwatch.request.duration",
+		Description: "Duration of LSP request",
+		Unit:        "s",
+	},
+	// TODO: Move to the module responsible for server metrics
+	// ServerRSS: {
+	// 	Kind:        Histogram,
+	// 	Name:        "lspwatch.server.rss",
+	// 	Description: "RSS of the language server process",
+	// 	Unit:        "bytes", // TODO: Check if this is correct
+	// },
+}
+
+// TODO: Move to MetricsRegistry
+func (rh *RequestsHandler) registerMetrics(cfg *LspwatchConfig) error {
+	// Default behavior if `metrics` is not specified in the config
+	if cfg.Metrics == nil {
+		err := rh.MetricsRegistry.RegisterMetric(RequestDuration)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	for _, metric := range *cfg.Metrics {
+		err := rh.MetricsRegistry.RegisterMetric(AvailableMetric(metric))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHandler, error) {
@@ -44,12 +81,17 @@ func NewRequestsHandler(cfg *LspwatchConfig, logger *logrus.Logger) (*RequestsHa
 		return nil, fmt.Errorf("invalid exporter: %v", cfg.Exporter)
 	}
 
-	exporter.RegisterMetric(Histogram, "lspwatch.request.duration", "Request duration", "s")
+	rh := RequestsHandler{
+		MetricsRegistry: NewMetricsRegistry(exporter, availableLSPMetrics),
+		requestBuffer:   orderedmap.NewOrderedMap[string, RequestBookmark](),
+	}
 
-	return &RequestsHandler{
-		requestBuffer: orderedmap.NewOrderedMap[string, RequestBookmark](),
-		Exporter:      exporter,
-	}, nil
+	err := rh.registerMetrics(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("error registering metrics: %v", err)
+	}
+
+	return &rh, nil
 }
 
 func (rh *RequestsHandler) ListenServer(
@@ -113,17 +155,21 @@ func (rh *RequestsHandler) ListenServer(
 						requestBookmark, ok := rh.requestBuffer.Get(serverMessage.Id.Value)
 						if ok {
 							rh.requestBuffer.Delete(serverMessage.Id.Value)
-							duration := time.Since(requestBookmark.RequestTime)
-							metric := NewMetricRecording(
-								"lspwatch.request.duration",
-								time.Now().Unix(),
-								duration.Seconds(),
-								NewTag("method", *requestBookmark.Method),
-							)
-							err := rh.Exporter.EmitMetric(metric)
-							if err != nil {
-								logger.Errorf("error emitting metric: %v", err)
+
+							if rh.MetricsRegistry.IsMetricEnabled(RequestDuration) {
+								duration := time.Since(requestBookmark.RequestTime)
+								requestDurationMetric := NewMetricRecording(
+									"lspwatch.request.duration",
+									time.Now().Unix(),
+									duration.Seconds(),
+									NewTag("method", *requestBookmark.Method),
+								)
+								err := rh.MetricsRegistry.EmitMetric(requestDurationMetric)
+								if err != nil {
+									logger.Errorf("error emitting metric: %v", err)
+								}
 							}
+
 						} else {
 							logger.Infof("received response for unbuffered request with ID=%v", serverMessage.Id.Value)
 						}

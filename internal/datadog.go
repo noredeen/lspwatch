@@ -27,7 +27,7 @@ type DatadogMetricsExporter struct {
 var _ MetricsExporter = &DatadogMetricsExporter{}
 
 // No-op. No need to register metrics for the Datadog exporter.
-func (dme *DatadogMetricsExporter) RegisterMetric(kind MetricKind, name string, description string, unit string) error {
+func (dme *DatadogMetricsExporter) RegisterMetric(registration MetricRegistration) error {
 	return nil
 }
 
@@ -185,6 +185,8 @@ func (dme *DatadogMetricsExporter) runMetricsBatchHandler(wg *sync.WaitGroup) {
 
 	var batch []MetricRecording
 	timer := time.NewTimer(timeout)
+
+	dme.logger.Info("started datadog exporter...")
 
 	for {
 		select {

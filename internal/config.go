@@ -7,19 +7,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TODO: These validations are borked :(
+type LspwatchConfig struct {
+	Exporter    string `yaml:"exporter" validate:"required,oneof=opentelemetry datadog"`
+	EnvFilePath string `yaml:"env_file" validate:"required_if=Exporter datadog,omitempty"`
+
+	Metrics *[]string `yaml:"metrics" validate:"omitempty,dive,oneof=request.duration server.rss"`
+	Tags    []string  `yaml:"tags" validate:"omitempty,dive,oneof=user os language_server ram"`
+
+	OpenTelemetry *openTelemetryConfig `yaml:"opentelemetry" validate:"required_if=Exporter opentelemetry"`
+	Datadog       *datadogConfig       `yaml:"datadog" validate:"required_if=Exporter datadog"`
+}
 
 type openTelemetryConfig struct {
 	Protocol           string            `yaml:"protocol" validate:"required,oneof=grpc http file"`
 	Directory          string            `yaml:"directory" validate:"required_if=Protocol file,omitempty,min=1"`
 	MetricsEndpointURL string            `yaml:"metrics_endpoint_url" validate:"required_unless=Protocol file,omitempty"`
-	TLS                TLSConfig         `yaml:"tls" validate:"omitempty"`
+	TLS                tlsConfig         `yaml:"tls" validate:"omitempty"`
 	Compression        string            `yaml:"compression" validate:"omitempty,oneof=gzip"`
 	Headers            map[string]string `yaml:"headers" validate:"omitempty"`
 	Timeout            *int              `yaml:"timeout" validate:"omitnil"`
 }
 
-type TLSConfig struct {
+type tlsConfig struct {
 	Insecure           bool   `yaml:"insecure"`
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 	CAFile             string `yaml:"ca_file" validate:"omitempty,filepath"`
@@ -32,13 +41,6 @@ type datadogConfig struct {
 	ClientAppKeyEnvVar string `yaml:"client_app_key_env_var" validate:"required"`
 	Site               string `yaml:"site" validate:"omitempty,oneof=datadoghq.com us3.datadoghq.com us5.datadoghq.com ap1.datadoghq.com datadoghq.eu ddog-gov.com"`
 	DisableCompression *bool  `yaml:"disable_compression" validate:"omitnil"`
-}
-
-type LspwatchConfig struct {
-	Exporter      string               `yaml:"exporter" validate:"required,oneof=opentelemetry datadog"`
-	EnvFilePath   string               `yaml:"env_file" validate:"required_if=Exporter datadog,omitempty"`
-	OpenTelemetry *openTelemetryConfig `yaml:"opentelemetry" validate:"required_if=Exporter opentelemetry"`
-	Datadog       *datadogConfig       `yaml:"datadog" validate:"required_if=Exporter datadog"`
 }
 
 func GetDefaultConfig() LspwatchConfig {
