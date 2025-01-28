@@ -1,6 +1,16 @@
-package internal
+package telemetry
 
-import "fmt"
+import (
+	"fmt"
+)
+
+type MetricsExporter interface {
+	RegisterMetric(registration MetricRegistration) error
+	EmitMetric(metric MetricRecording) error
+	// Must be idempotent and non-blocking. Use Wait() to block until shutdown is complete.
+	Shutdown() error
+	Wait()
+}
 
 const (
 	Counter MetricKind = iota
@@ -41,12 +51,6 @@ type Tag struct {
 	Value string
 }
 
-type MetricsExporter interface {
-	RegisterMetric(registration MetricRegistration) error
-	EmitMetric(metric MetricRecording) error
-	Shutdown() error
-}
-
 func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
 	registration, ok := mr.available[metric]
 	if !ok {
@@ -74,12 +78,17 @@ func (mr *MetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
 	return mr.enabled[AvailableMetric(metric)]
 }
 
+// Idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 func (mr *MetricsRegistry) Shutdown() error {
 	return mr.exporter.Shutdown()
 }
 
-func NewMetricsRegistry(exporter MetricsExporter, availableMetrics map[AvailableMetric]MetricRegistration) *MetricsRegistry {
-	return &MetricsRegistry{
+func (mr *MetricsRegistry) Wait() {
+	mr.exporter.Wait()
+}
+
+func NewMetricsRegistry(exporter MetricsExporter, availableMetrics map[AvailableMetric]MetricRegistration) MetricsRegistry {
+	return MetricsRegistry{
 		available: availableMetrics,
 		enabled:   make(map[AvailableMetric]bool),
 		exporter:  exporter,

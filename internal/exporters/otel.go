@@ -1,4 +1,4 @@
-package internal
+package exporters
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/bombsimon/logrusr/v4"
+	"github.com/noredeen/lspwatch/internal/config"
+	"github.com/noredeen/lspwatch/internal/telemetry"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -33,7 +35,7 @@ type MetricsOTelExporter struct {
 	histograms    map[string]metric.Float64Histogram
 }
 
-var _ MetricsExporter = &MetricsOTelExporter{}
+var _ telemetry.MetricsExporter = &MetricsOTelExporter{}
 var _ sdkmetric.Exporter = &fileExporter{}
 
 // Why not the stdoutmetric exporter from otel/exporters?
@@ -47,9 +49,9 @@ type fileExporter struct {
 	file *os.File
 }
 
-func (ome *MetricsOTelExporter) RegisterMetric(registration MetricRegistration) error {
+func (ome *MetricsOTelExporter) RegisterMetric(registration telemetry.MetricRegistration) error {
 	switch registration.Kind {
-	case Histogram:
+	case telemetry.Histogram:
 		hist, err := ome.meter.Float64Histogram(
 			registration.Name,
 			metric.WithDescription(registration.Description),
@@ -66,22 +68,25 @@ func (ome *MetricsOTelExporter) RegisterMetric(registration MetricRegistration) 
 }
 
 // TODO: Add tags.
-func (ome *MetricsOTelExporter) EmitMetric(metricPoint MetricRecording) error {
-	if histogram, ok := ome.histograms[metricPoint.Name]; ok {
+func (ome *MetricsOTelExporter) EmitMetric(metric telemetry.MetricRecording) error {
+	if histogram, ok := ome.histograms[metric.Name]; ok {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), emitMetricTimeout)
 		defer cancel()
 
-		histogram.Record(timeoutCtx, metricPoint.Value)
+		histogram.Record(timeoutCtx, metric.Value)
 		return nil
 	} else {
-		return fmt.Errorf("histogram not found for metric: %s", metricPoint.Name)
+		return fmt.Errorf("histogram not found for metric: %s", metric.Name)
 	}
 }
 
 // NOTE: Might have to rework this into invoking a function stored in the struct.
 func (ome *MetricsOTelExporter) Shutdown() error {
+	// TODO: Use a context + the Wait method!!!
 	return ome.meterProvider.Shutdown(context.Background())
 }
+
+func (ome *MetricsOTelExporter) Wait() {}
 
 // TODO: Honor the context?
 func (e *fileExporter) Export(ctx context.Context, data *metricdata.ResourceMetrics) error {
@@ -120,7 +125,7 @@ func (e *fileExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func newTLSConfig(cfg *tlsConfig) (*tls.Config, error) {
+func newTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 	tlsCfg := tls.Config{}
 
 	tlsCfg.InsecureSkipVerify = cfg.InsecureSkipVerify
@@ -148,7 +153,7 @@ func newTLSConfig(cfg *tlsConfig) (*tls.Config, error) {
 }
 
 // TODO: File rotation.
-func newFileExporter(cfg *openTelemetryConfig) (*fileExporter, error) {
+func newFileExporter(cfg *config.OpenTelemetryConfig) (*fileExporter, error) {
 	path := cfg.Directory
 
 	if path[len(path)-1] != '/' {
@@ -188,7 +193,7 @@ func newOTelMeterProvider(exporter sdkmetric.Exporter, res *resource.Resource) *
 	return meterProvider
 }
 
-func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
+func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Exporter, error) {
 	options := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpointURL(cfg.MetricsEndpointURL),
 		otlpmetricgrpc.WithHeaders(cfg.Headers),
@@ -227,7 +232,7 @@ func newOTLPMetricsGRPCExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, e
 	return metricExporter, nil
 }
 
-func newOTLPMetricsHTTPExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, error) {
+func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Exporter, error) {
 	options := []otlpmetrichttp.Option{
 		otlpmetrichttp.WithEndpointURL(cfg.MetricsEndpointURL),
 		otlpmetrichttp.WithHeaders(cfg.Headers),
@@ -266,8 +271,11 @@ func newOTLPMetricsHTTPExporter(cfg *openTelemetryConfig) (sdkmetric.Exporter, e
 	return metricExporter, nil
 }
 
+// TODO: This should not create the meter provider, since that "starts" the
+// exporter. Create a Start()/Launch() method for that.
+//
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewMetricsOTelExporter(cfg *openTelemetryConfig, logger *logrus.Logger) (*MetricsOTelExporter, error) {
+func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logger *logrus.Logger) (*MetricsOTelExporter, error) {
 	logr := logrusr.New(logger)
 	// TODO: I don't think this works.
 	otel.SetLogger(logr)

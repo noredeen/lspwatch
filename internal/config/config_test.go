@@ -1,4 +1,4 @@
-package internal
+package config
 
 import (
 	"testing"
@@ -24,7 +24,7 @@ opentelemetry:
   directory: ./`,
 			expectedCfg: LspwatchConfig{
 				Exporter: "opentelemetry",
-				OpenTelemetry: &openTelemetryConfig{
+				OpenTelemetry: &OpenTelemetryConfig{
 					Protocol:  "file",
 					Directory: "./",
 				},
@@ -42,7 +42,7 @@ opentelemetry:
   compression: gzip`,
 			expectedCfg: LspwatchConfig{
 				Exporter: "opentelemetry",
-				OpenTelemetry: &openTelemetryConfig{
+				OpenTelemetry: &OpenTelemetryConfig{
 					Protocol:           "grpc",
 					MetricsEndpointURL: "http://localhost:4317/v1/metrics",
 					Compression:        "gzip",
@@ -69,13 +69,13 @@ opentelemetry:
     key_file: ./key.pem`,
 			expectedCfg: LspwatchConfig{
 				Exporter: "opentelemetry",
-				OpenTelemetry: &openTelemetryConfig{
+				OpenTelemetry: &OpenTelemetryConfig{
 					Protocol:           "grpc",
 					MetricsEndpointURL: "http://localhost:4317/v1/metrics",
 					Compression:        "gzip",
 					Headers:            map[string]string{"foo": "bar"},
 					Timeout:            &[]int{10}[0],
-					TLS: tlsConfig{
+					TLS: TLSConfig{
 						Insecure: true,
 						CAFile:   "./ca.pem",
 						CertFile: "./cert.pem",
@@ -95,7 +95,7 @@ opentelemetry:
   metrics_endpoint_url: http://localhost:4318/v1/metrics`,
 			expectedCfg: LspwatchConfig{
 				Exporter: "opentelemetry",
-				OpenTelemetry: &openTelemetryConfig{
+				OpenTelemetry: &OpenTelemetryConfig{
 					Protocol:           "http",
 					MetricsEndpointURL: "http://localhost:4318/v1/metrics",
 				},
@@ -133,7 +133,7 @@ datadog:
 			expectedCfg: LspwatchConfig{
 				Exporter:    "datadog",
 				EnvFilePath: ".env",
-				Datadog: &datadogConfig{
+				Datadog: &DatadogConfig{
 					ClientApiKeyEnvVar: "CLIENT_API_KEY",
 					ClientAppKeyEnvVar: "CLIENT_APP_KEY",
 				},

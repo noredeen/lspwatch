@@ -1,4 +1,4 @@
-package internal
+package io
 
 import (
 	"bufio"
@@ -41,9 +41,9 @@ type HeaderCaptureReader struct {
 }
 
 type LSPReadResult struct {
-	headers *textproto.MIMEHeader
-	rawBody *[]byte
-	err     error
+	Headers *textproto.MIMEHeader
+	RawBody *[]byte
+	Err     error
 }
 
 // For debugging
@@ -113,7 +113,7 @@ func NewHeaderCaptureReader(reader io.Reader) *HeaderCaptureReader {
 // header (which doesn't match the length of the body). Happens
 // very infrequently and hard to repro.
 
-func readLSPMessage(
+func ReadLSPMessage(
 	reader io.Reader,
 	jsonBody interface{},
 ) LSPReadResult {
@@ -131,7 +131,7 @@ func readLSPMessage(
 	headers, err := tp.ReadMIMEHeader()
 	if err != nil {
 		return LSPReadResult{
-			err: fmt.Errorf("failed to read LSP request header: %v", err),
+			Err: fmt.Errorf("failed to read LSP request header: %v", err),
 		}
 	}
 
@@ -140,7 +140,7 @@ func readLSPMessage(
 	contentLengths, ok := headers["Content-Length"]
 	if !ok {
 		return LSPReadResult{
-			err: fmt.Errorf("missing Content-Length header in LSP request"),
+			Err: fmt.Errorf("missing Content-Length header in LSP request"),
 		}
 	}
 
@@ -148,7 +148,7 @@ func readLSPMessage(
 	contentByteCnt, err := strconv.Atoi(contentLength)
 	if err != nil {
 		return LSPReadResult{
-			err: fmt.Errorf("Content-Length value is not an integer"),
+			Err: fmt.Errorf("Content-Length value is not an integer"),
 		}
 	}
 
@@ -158,7 +158,7 @@ func readLSPMessage(
 		_, err := bufReader.Read(buffer)
 		if err != nil {
 			return LSPReadResult{
-				err: fmt.Errorf("error reading content byte: %v", err),
+				Err: fmt.Errorf("error reading content byte: %v", err),
 			}
 		}
 
@@ -168,15 +168,15 @@ func readLSPMessage(
 	err = json.Unmarshal(requestContent, jsonBody)
 	if err != nil {
 		return LSPReadResult{
-			err: fmt.Errorf("failed to decode JSON-RPC payload: %v", err),
+			Err: fmt.Errorf("failed to decode JSON-RPC payload: %v", err),
 		}
 	}
 
 	rawLspRequest = append(rawLspRequest, requestContent...)
 
 	return LSPReadResult{
-		headers: &headers,
-		rawBody: &rawLspRequest,
+		Headers: &headers,
+		RawBody: &rawLspRequest,
 	}
 }
 

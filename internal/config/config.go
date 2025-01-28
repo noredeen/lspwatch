@@ -1,4 +1,4 @@
-package internal
+package config
 
 import (
 	"fmt"
@@ -14,21 +14,21 @@ type LspwatchConfig struct {
 	Metrics *[]string `yaml:"metrics" validate:"omitempty,dive,oneof=request.duration server.rss"`
 	Tags    []string  `yaml:"tags" validate:"omitempty,dive,oneof=user os language_server ram"`
 
-	OpenTelemetry *openTelemetryConfig `yaml:"opentelemetry" validate:"required_if=Exporter opentelemetry"`
-	Datadog       *datadogConfig       `yaml:"datadog" validate:"required_if=Exporter datadog"`
+	OpenTelemetry *OpenTelemetryConfig `yaml:"opentelemetry" validate:"required_if=Exporter opentelemetry"`
+	Datadog       *DatadogConfig       `yaml:"datadog" validate:"required_if=Exporter datadog"`
 }
 
-type openTelemetryConfig struct {
+type OpenTelemetryConfig struct {
 	Protocol           string            `yaml:"protocol" validate:"required,oneof=grpc http file"`
 	Directory          string            `yaml:"directory" validate:"required_if=Protocol file,omitempty,min=1"`
 	MetricsEndpointURL string            `yaml:"metrics_endpoint_url" validate:"required_unless=Protocol file,omitempty"`
-	TLS                tlsConfig         `yaml:"tls" validate:"omitempty"`
+	TLS                TLSConfig         `yaml:"tls" validate:"omitempty"`
 	Compression        string            `yaml:"compression" validate:"omitempty,oneof=gzip"`
 	Headers            map[string]string `yaml:"headers" validate:"omitempty"`
 	Timeout            *int              `yaml:"timeout" validate:"omitnil"`
 }
 
-type tlsConfig struct {
+type TLSConfig struct {
 	Insecure           bool   `yaml:"insecure"`
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 	CAFile             string `yaml:"ca_file" validate:"omitempty,filepath"`
@@ -36,7 +36,7 @@ type tlsConfig struct {
 	KeyFile            string `yaml:"key_file" validate:"omitempty,filepath"`
 }
 
-type datadogConfig struct {
+type DatadogConfig struct {
 	ClientApiKeyEnvVar string `yaml:"client_api_key_env_var" validate:"required"`
 	ClientAppKeyEnvVar string `yaml:"client_app_key_env_var" validate:"required"`
 	Site               string `yaml:"site" validate:"omitempty,oneof=datadoghq.com us3.datadoghq.com us5.datadoghq.com ap1.datadoghq.com datadoghq.eu ddog-gov.com"`
@@ -46,7 +46,7 @@ type datadogConfig struct {
 func GetDefaultConfig() LspwatchConfig {
 	return LspwatchConfig{
 		Exporter: "opentelemetry",
-		OpenTelemetry: &openTelemetryConfig{
+		OpenTelemetry: &OpenTelemetryConfig{
 			Protocol:  "file",
 			Directory: "./",
 		},
