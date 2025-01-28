@@ -13,7 +13,7 @@ import (
 )
 
 type ProcessWatcher struct {
-	MetricsRegistry   telemetry.MetricsRegistry
+	metricsRegistry   telemetry.MetricsRegistry
 	process           *os.Process
 	processExitedChan chan error
 	processExited     bool
@@ -40,6 +40,7 @@ func (pw *ProcessWatcher) Launch() error {
 
 	// I'm ok with letting this goroutine run indefinitely (for now)
 	go func() {
+		// TODO: use the returned state value
 		_, err := pw.process.Wait()
 		pw.mu.Lock()
 		if pw.processExitedChan != nil {
@@ -51,6 +52,7 @@ func (pw *ProcessWatcher) Launch() error {
 	}()
 
 	ticker := time.NewTicker(4 * time.Second)
+	pw.wg.Add(1)
 	go func() {
 		defer func() {
 			ticker.Stop()
@@ -69,10 +71,23 @@ func (pw *ProcessWatcher) Launch() error {
 				}
 				pw.mu.Unlock()
 
-				_, err := utilProc.MemoryInfo()
-				if err != nil {
-					pw.logger.Errorf("failed to get memory info: %v", err)
-					continue
+				if pw.metricsRegistry.IsMetricEnabled(telemetry.ServerRSS) {
+					memoryInfo, err := utilProc.MemoryInfo()
+					if err != nil {
+						pw.logger.Errorf("failed to get memory info: %v", err)
+						continue
+					}
+
+					metric := telemetry.NewMetricRecording(
+						telemetry.ServerRSS,
+						time.Now().Unix(),
+						float64(memoryInfo.RSS),
+					)
+
+					err = pw.metricsRegistry.EmitMetric(metric)
+					if err != nil {
+						pw.logger.Errorf("failed to emit metric: %v", err)
+					}
 				}
 			}
 		}
@@ -81,12 +96,26 @@ func (pw *ProcessWatcher) Launch() error {
 	return nil
 }
 
+// Idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 func (pw *ProcessWatcher) Shutdown() error {
+	if pw.incomingShutdown != nil {
+		close(pw.incomingShutdown)
+		pw.incomingShutdown = nil
+	}
+
+	err := pw.metricsRegistry.Shutdown()
+	if err != nil {
+		return fmt.Errorf("error shutting down metrics registry: %v", err)
+	}
 	return nil
 }
 
-// TODO: Impl
-func (pw *ProcessWatcher) Wait() {}
+func (pw *ProcessWatcher) Wait() {
+	pw.wg.Wait()
+	pw.logger.Info("process watcher monitors shutdown complete")
+	pw.metricsRegistry.Wait()
+	pw.logger.Info("process watcher metrics registry shutdown complete")
+}
 
 func (pw *ProcessWatcher) ProcessExited() chan error {
 	return pw.processExitedChan
@@ -96,7 +125,7 @@ func (pw *ProcessWatcher) ProcessExited() chan error {
 func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {
-		err := pw.MetricsRegistry.RegisterMetric(telemetry.ServerRSS)
+		err := pw.metricsRegistry.RegisterMetric(telemetry.ServerRSS)
 		if err != nil {
 			return err
 		}
@@ -104,7 +133,7 @@ func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	}
 
 	for _, metric := range *cfg.Metrics {
-		err := pw.MetricsRegistry.RegisterMetric(telemetry.AvailableMetric(metric))
+		err := pw.metricsRegistry.RegisterMetric(telemetry.AvailableMetric(metric))
 		if err != nil {
 			return err
 		}
@@ -113,10 +142,9 @@ func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	return nil
 }
 
-// TODO: Impl
 func NewProcessWatcher(process *os.Process, exporter telemetry.MetricsExporter, cfg *config.LspwatchConfig, logger *logrus.Logger) (*ProcessWatcher, error) {
 	pw := ProcessWatcher{
-		MetricsRegistry:   telemetry.NewMetricsRegistry(exporter, availableServerMetrics),
+		metricsRegistry:   telemetry.NewMetricsRegistry(exporter, availableServerMetrics),
 		process:           process,
 		processExitedChan: make(chan error),
 		incomingShutdown:  make(chan struct{}),

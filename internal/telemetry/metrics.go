@@ -103,7 +103,7 @@ func NewTag(key string, value string) Tag {
 }
 
 func NewMetricRecording(
-	name string,
+	name AvailableMetric,
 	timestamp int64,
 	value float64,
 	tags ...Tag,
@@ -114,7 +114,7 @@ func NewMetricRecording(
 	}
 
 	return MetricRecording{
-		Name:      name,
+		Name:      string(name),
 		Timestamp: timestamp,
 		Value:     value,
 		Tags:      &tagsMap,

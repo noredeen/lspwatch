@@ -46,7 +46,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 
 	exitCode := 0
 
-	defer func() { lspwatchInstance.Shutdown(exitCode) }()
+	defer func() { lspwatchInstance.shutdown(exitCode) }()
 
 	// Create a timer in a stopped state (already expired)
 	timer := time.NewTimer(0)
@@ -88,7 +88,9 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 	}
 }
 
-func (lspwatchInstance *LspwatchInstance) Shutdown(exitCode int) {
+// Unlike public Shutdown() methods, this will block and wait for
+// all shutdowns to complete before exiting.
+func (lspwatchInstance *LspwatchInstance) shutdown(exitCode int) {
 	logger := lspwatchInstance.logger
 	proxyHandler := lspwatchInstance.proxyHandler
 	processWatcher := lspwatchInstance.processWatcher
@@ -106,6 +108,7 @@ func (lspwatchInstance *LspwatchInstance) Shutdown(exitCode int) {
 	proxyHandler.Wait()
 	processWatcher.Wait()
 	lspwatchInstance.Release()
+
 	logger.Info("lspwatch shutdown complete. goodbye!")
 
 	err = lspwatchInstance.logFile.Close()
@@ -116,6 +119,8 @@ func (lspwatchInstance *LspwatchInstance) Shutdown(exitCode int) {
 	os.Exit(exitCode)
 }
 
+// NOTE: This starts the language server process. Proxying and monitoring facilities
+// are not started until Run() is called.
 func NewLspwatchInstance(serverShellCommand string, args []string, cfgFilePath string) (LspwatchInstance, error) {
 	logger, logFile, err := lspwatch_io.CreateLogger("lspwatch.log", true)
 	if err != nil {
