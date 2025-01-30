@@ -23,6 +23,7 @@ type RequestBookmark struct {
 }
 
 type ProxyHandler struct {
+	meteredRequests    map[string]struct{}
 	metricsRegistry    telemetry.MetricsRegistry
 	requestBuffer      *orderedmap.OrderedMap[string, RequestBookmark]
 	outgoingShutdown   chan struct{}
@@ -38,6 +39,16 @@ var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistra
 		Description: "Duration of LSP request",
 		Unit:        "s",
 	},
+}
+
+var defaultMeteredRequests = []string{
+	"initialize",
+	"textDocument/references",
+	"textDocument/hover",
+	"textDocument/documentSymbol",
+	"textDocument/completion",
+	"textDocument/diagnostic",
+	"textDocument/signatureHelp",
 }
 
 func (ph *ProxyHandler) ShutdownRequested() chan struct{} {
@@ -151,20 +162,24 @@ func (ph *ProxyHandler) listenServer(serverOutputPipe io.ReadCloser) {
 						if ok {
 							ph.requestBuffer.Delete(serverMessage.Id.Value)
 
-							if ph.metricsRegistry.IsMetricEnabled(telemetry.RequestDuration) {
-								duration := time.Since(requestBookmark.RequestTime)
-								requestDurationMetric := telemetry.NewMetricRecording(
-									telemetry.RequestDuration,
-									time.Now().Unix(),
-									duration.Seconds(),
-									telemetry.NewTag("method", telemetry.TagValue(requestBookmark.Method)),
-								)
-								err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
-								if err != nil {
-									ph.logger.Errorf("error emitting metric: %v", err)
+							// Only consider requests which lspwatch is configured to meter.
+							if _, metered := ph.meteredRequests[requestBookmark.Method]; metered {
+
+								// Meter this requests's duration only if it's enabled.
+								if ph.metricsRegistry.IsMetricEnabled(telemetry.RequestDuration) {
+									duration := time.Since(requestBookmark.RequestTime)
+									requestDurationMetric := telemetry.NewMetricRecording(
+										telemetry.RequestDuration,
+										time.Now().Unix(),
+										duration.Seconds(),
+										telemetry.NewTag("method", telemetry.TagValue(requestBookmark.Method)),
+									)
+									err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
+									if err != nil {
+										ph.logger.Errorf("error emitting metric: %v", err)
+									}
 								}
 							}
-
 						} else {
 							ph.logger.Infof(
 								"received response for unbuffered request with ID=%v",
@@ -288,7 +303,20 @@ func NewProxyHandler(
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
 ) (*ProxyHandler, error) {
+	var meteredRequests []string
+	if cfg.MeteredRequests != nil {
+		meteredRequests = *cfg.MeteredRequests
+	} else {
+		meteredRequests = defaultMeteredRequests
+	}
+
+	meteredRequestsMap := make(map[string]struct{})
+	for _, requestMethod := range meteredRequests {
+		meteredRequestsMap[requestMethod] = struct{}{}
+	}
+
 	rh := ProxyHandler{
+		meteredRequests:    meteredRequestsMap,
 		metricsRegistry:    telemetry.NewMetricsRegistry(exporter, availableLSPMetrics),
 		requestBuffer:      orderedmap.NewOrderedMap[string, RequestBookmark](),
 		outgoingShutdown:   make(chan struct{}),

@@ -85,6 +85,7 @@ func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
 	return nil
 }
 
+// Skips emitting the metric if it's not enabled within the registry.
 func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
 	if !mr.enabled[AvailableMetric(metric.Name)] {
 		return nil
@@ -93,6 +94,7 @@ func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
 	return mr.exporter.EmitMetric(metric)
 }
 
+// Useful when producing the MetricRecording for EmitMetric() should be skipped.
 func (mr *MetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
 	return mr.enabled[AvailableMetric(metric)]
 }

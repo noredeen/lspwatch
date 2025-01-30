@@ -11,8 +11,9 @@ type LspwatchConfig struct {
 	Exporter    string `yaml:"exporter" validate:"required,oneof=opentelemetry datadog"`
 	EnvFilePath string `yaml:"env_file" validate:"required_if=Exporter datadog,omitempty"`
 
-	Metrics *[]string `yaml:"metrics" validate:"omitempty,dive,oneof=request.duration server.rss"`
-	Tags    []string  `yaml:"tags" validate:"omitempty,dive,oneof=user os language_server ram"`
+	Metrics         *[]string `yaml:"metrics" validate:"omitempty,dive,oneof=request.duration server.rss"`
+	Tags            []string  `yaml:"tags" validate:"omitempty,dive,oneof=user os language_server ram"`
+	MeteredRequests *[]string `yaml:"metered_requests" validate:"omitempty"`
 
 	OpenTelemetry *OpenTelemetryConfig `yaml:"opentelemetry" validate:"required_if=Exporter opentelemetry"`
 	Datadog       *DatadogConfig       `yaml:"datadog" validate:"required_if=Exporter datadog"`
