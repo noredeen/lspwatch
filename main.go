@@ -1,7 +1,7 @@
 package main
 
-import "lspwatch/cmd"
+import "github.com/noredeen/lspwatch/cmd"
 
 func main() {
-    cmd.Execute()
+	cmd.Execute()
 }

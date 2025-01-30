@@ -1,4 +1,4 @@
-package internal
+package exporters
 
 import (
 	"context"
@@ -12,41 +12,70 @@ import (
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
+	"github.com/noredeen/lspwatch/internal/config"
+	"github.com/noredeen/lspwatch/internal/io"
+	"github.com/noredeen/lspwatch/internal/telemetry"
 	"github.com/sirupsen/logrus"
 )
 
 type DatadogMetricsExporter struct {
 	metricsApiClient *datadogV2.MetricsApi
 	datadogContext   context.Context
-	metricsChan      chan MetricRecording
+	metricsChan      chan telemetry.MetricRecording
+	globalTags       []telemetry.Tag
 	wg               *sync.WaitGroup
 	logger           *logrus.Logger
 	logFile          *os.File
 }
 
-var _ MetricsExporter = &DatadogMetricsExporter{}
+var _ telemetry.MetricsExporter = &DatadogMetricsExporter{}
+
+const batchTimeout = 30 * time.Second
+const batchSize = 100
 
 // No-op. No need to register metrics for the Datadog exporter.
-func (dme *DatadogMetricsExporter) RegisterMetric(kind MetricKind, name string, description string, unit string) error {
+func (dme *DatadogMetricsExporter) RegisterMetric(registration telemetry.MetricRegistration) error {
 	return nil
 }
 
-func (dme *DatadogMetricsExporter) EmitMetric(metricPoint MetricRecording) error {
-	dme.metricsChan <- metricPoint
+func (dme *DatadogMetricsExporter) EmitMetric(metric telemetry.MetricRecording) error {
+	dme.metricsChan <- metric
+	return nil
+}
+
+func (dme *DatadogMetricsExporter) Start() error {
+	dme.wg.Add(1)
+	go dme.runMetricsBatchHandler()
 	return nil
 }
 
 func (dme *DatadogMetricsExporter) Shutdown() error {
-	close(dme.metricsChan)
+	if dme.metricsChan != nil {
+		close(dme.metricsChan)
+		dme.metricsChan = nil
+	}
+
+	return nil
+}
+
+func (dme *DatadogMetricsExporter) Wait() {
 	dme.wg.Wait()
+}
+
+func (dme *DatadogMetricsExporter) Release() error {
 	if dme.logFile != nil {
 		dme.logFile.Close()
+		dme.logFile = nil
 	}
 	return nil
 }
 
-func NewDatadogMetricsExporter(cfg *datadogConfig) (*DatadogMetricsExporter, error) {
-	logger, logFile, err := CreateLogger("datadog.log", true)
+func (dme *DatadogMetricsExporter) SetGlobalTags(tags ...telemetry.Tag) {
+	dme.globalTags = tags
+}
+
+func NewDatadogMetricsExporter(cfg *config.DatadogConfig) (*DatadogMetricsExporter, error) {
+	logger, logFile, err := io.CreateLogger("datadog.log", true)
 	if err != nil {
 		return nil, fmt.Errorf("error creating datadog logger: %v", err)
 	}
@@ -84,7 +113,7 @@ func NewDatadogMetricsExporter(cfg *datadogConfig) (*DatadogMetricsExporter, err
 	metricsApi := datadogV2.NewMetricsApi(client)
 
 	var wg sync.WaitGroup
-	metricsChan := make(chan MetricRecording)
+	metricsChan := make(chan telemetry.MetricRecording)
 
 	exporter := DatadogMetricsExporter{
 		metricsApiClient: metricsApi,
@@ -95,13 +124,10 @@ func NewDatadogMetricsExporter(cfg *datadogConfig) (*DatadogMetricsExporter, err
 		logFile:          logFile,
 	}
 
-	wg.Add(1)
-	go exporter.runMetricsBatchHandler(&wg)
-
 	return &exporter, nil
 }
 
-func computeTimeseriesId(metric MetricRecording) string {
+func computeTimeseriesId(metric telemetry.MetricRecording) string {
 	tags := *metric.Tags
 	keys := make([]string, 0, len(tags))
 	for k := range tags {
@@ -111,36 +137,40 @@ func computeTimeseriesId(metric MetricRecording) string {
 
 	result := metric.Name + ";"
 	for _, k := range keys {
-		result += k + "=" + tags[k] + ";"
+		result += k + "=" + string(tags[k]) + ";"
 	}
 
 	hash := sha256.Sum256([]byte(result))
 	return hex.EncodeToString(hash[:])
 }
 
-func getTags(metric MetricRecording) []string {
+func getTagString(key string, value string) string {
+	return key + ":" + value
+}
+
+func getTags(metric telemetry.MetricRecording) []string {
 	tags := []string{}
 	for key, value := range *metric.Tags {
-		tagString := key + ":" + value
+		tagString := getTagString(key, string(value))
 		tags = append(tags, tagString)
 	}
 	return tags
 }
 
 func (dme *DatadogMetricsExporter) processMetricsBatch(
-	batch []MetricRecording,
+	batch []telemetry.MetricRecording,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
 
-	groupedMetrics := make(map[string][]MetricRecording)
+	groupedMetrics := make(map[string][]telemetry.MetricRecording)
 	for _, metric := range batch {
 		key := computeTimeseriesId(metric)
-		var metrics []MetricRecording
+		var metrics []telemetry.MetricRecording
 		if coll, ok := groupedMetrics[key]; ok {
 			metrics = coll
 		} else {
-			metrics = []MetricRecording{}
+			metrics = []telemetry.MetricRecording{}
 		}
 		metrics = append(metrics, metric)
 		groupedMetrics[key] = metrics
@@ -161,30 +191,37 @@ func (dme *DatadogMetricsExporter) processMetricsBatch(
 		}
 
 		timeseries := datadogV2.NewMetricSeries(metricName, points)
+		for _, tag := range dme.globalTags {
+			metricTags = append(metricTags, getTagString(tag.Key, string(tag.Value)))
+		}
 		timeseries.SetTags(metricTags)
 		timeseriesColl = append(timeseriesColl, *timeseries)
 	}
 
 	payload := datadogV2.NewMetricPayload(timeseriesColl)
-	// TODO: add deadline
+	// TODO: Units.
+	// TODO: Add deadline.
 	_, r, err := dme.metricsApiClient.SubmitMetrics(dme.datadogContext, *payload)
 	if err != nil {
 		dme.logger.Errorf("error seding metrics batch to Datadog: %v", err)
+	} else {
+		dme.logger.Infof("received %v response from Datadog", r.Status)
 	}
-	dme.logger.Infof("full http response (%v) from datadog: %v", r.Status, r)
+
 }
 
-func (dme *DatadogMetricsExporter) runMetricsBatchHandler(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	const timeout = 30 * time.Second
-	const batchSize = 100
-
+func (dme *DatadogMetricsExporter) runMetricsBatchHandler() {
 	var internalWg sync.WaitGroup
-	defer internalWg.Wait()
 
-	var batch []MetricRecording
-	timer := time.NewTimer(timeout)
+	defer func() {
+		internalWg.Wait()
+		dme.wg.Done()
+	}()
+
+	var batch []telemetry.MetricRecording
+	timer := time.NewTimer(batchTimeout)
+
+	dme.logger.Info("started Datadog exporter")
 
 	for {
 		select {
@@ -195,7 +232,7 @@ func (dme *DatadogMetricsExporter) runMetricsBatchHandler(wg *sync.WaitGroup) {
 				go dme.processMetricsBatch(batch, &internalWg)
 				batch = nil
 			}
-			timer.Reset(timeout)
+			timer.Reset(batchTimeout)
 		case metric, ok := <-dme.metricsChan:
 			if !ok { // Channel closed
 				dme.logger.Info("metrics channel closed. flushing metrics batch")
@@ -213,7 +250,7 @@ func (dme *DatadogMetricsExporter) runMetricsBatchHandler(wg *sync.WaitGroup) {
 				dme.logger.Info("full batch reached. flushing.")
 				go dme.processMetricsBatch(batch, &internalWg)
 				batch = nil
-				timer.Reset(timeout)
+				timer.Reset(batchTimeout)
 			}
 		}
 	}
