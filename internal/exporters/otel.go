@@ -9,11 +9,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/bombsimon/logrusr/v4"
 	"github.com/noredeen/lspwatch/internal/config"
 	"github.com/noredeen/lspwatch/internal/telemetry"
-	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -31,10 +28,13 @@ const (
 )
 
 type MetricsOTelExporter struct {
+	otelExporter  sdkmetric.Exporter
+	resource      resource.Resource
 	meterProvider *sdkmetric.MeterProvider
 	meter         metric.Meter
 	histograms    map[string]metric.Float64Histogram
 	globalTags    []telemetry.Tag
+	shutdownCtx   context.Context
 }
 
 var _ telemetry.MetricsExporter = &MetricsOTelExporter{}
@@ -91,14 +91,29 @@ func (ome *MetricsOTelExporter) EmitMetric(metricRecording telemetry.MetricRecor
 	return nil
 }
 
-// NOTE: Might have to rework this into invoking a function stored in the struct.
-func (ome *MetricsOTelExporter) Shutdown() error {
-	// TODO: Use a context + the Wait method!!!
-	return ome.meterProvider.Shutdown(context.Background())
+func (ome *MetricsOTelExporter) Start() error {
+	meterProvider := newOTelMeterProvider(ome.otelExporter, &ome.resource)
+	meter := meterProvider.Meter("lspwatch")
+	ome.meterProvider = meterProvider
+	ome.meter = meter
+	return nil
 }
 
-// TODO
-func (ome *MetricsOTelExporter) Wait() {}
+// NOTE: Might have to rework this into invoking a function stored in the struct.
+func (ome *MetricsOTelExporter) Shutdown() error {
+	// TODO: Timeout?
+	ome.shutdownCtx = context.Background()
+	go ome.meterProvider.Shutdown(ome.shutdownCtx)
+	return nil
+}
+
+func (ome *MetricsOTelExporter) Wait() {
+	<-ome.shutdownCtx.Done()
+}
+
+func (ome *MetricsOTelExporter) Release() error {
+	return nil
+}
 
 func (ome *MetricsOTelExporter) SetGlobalTags(tags ...telemetry.Tag) {
 	ome.globalTags = tags
@@ -287,23 +302,13 @@ func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Expo
 	return metricExporter, nil
 }
 
-// TODO: This should not create the meter provider, since that "starts" the
-// exporter. Create a Start()/Launch() method for that.
-//
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewMetricsOTelExporter(
-	cfg *config.OpenTelemetryConfig,
-	logger *logrus.Logger,
-) (*MetricsOTelExporter, error) {
-	logr := logrusr.New(logger)
+func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig) (*MetricsOTelExporter, error) {
 	// TODO: I don't think this works.
-	otel.SetLogger(logr)
+	// logr := logrusr.New(logger)
+	// otel.SetLogger(logr)
 
-	res, err := newResource()
-	if err != nil {
-		return nil, err
-	}
-
+	var err error
 	var metricExporter sdkmetric.Exporter
 	switch cfg.Protocol {
 	case "http":
@@ -318,13 +323,14 @@ func NewMetricsOTelExporter(
 		return nil, err
 	}
 
-	meterProvider := newOTelMeterProvider(metricExporter, res)
-
-	meter := meterProvider.Meter("lspwatch")
+	res, err := newResource()
+	if err != nil {
+		return nil, err
+	}
 
 	return &MetricsOTelExporter{
-		meterProvider: meterProvider,
-		meter:         meter,
-		histograms:    make(map[string]metric.Float64Histogram),
+		resource:     *res,
+		otelExporter: metricExporter,
+		histograms:   make(map[string]metric.Float64Histogram),
 	}, nil
 }

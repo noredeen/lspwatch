@@ -24,6 +24,7 @@ import (
 
 type LspwatchInstance struct {
 	cfg            config.LspwatchConfig
+	exporter       telemetry.MetricsExporter
 	proxyHandler   *core.ProxyHandler
 	processWatcher *core.ProcessWatcher
 	logger         *logrus.Logger
@@ -33,20 +34,43 @@ type LspwatchInstance struct {
 	stdinPipe      io.WriteCloser
 }
 
-func (lspwatchInstance *LspwatchInstance) Release() {
-	lspwatchInstance.stdoutPipe.Close()
-	lspwatchInstance.stdinPipe.Close()
+func (lspwatchInstance *LspwatchInstance) Release() error {
+	var errors []error
+	err := lspwatchInstance.stdoutPipe.Close()
+	if err != nil {
+		errors = append(errors, err)
+	}
+	err = lspwatchInstance.stdinPipe.Close()
+	if err != nil {
+		errors = append(errors, err)
+	}
+	err = lspwatchInstance.logFile.Close()
+	if err != nil {
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("issues: %v", errors)
+	}
+
+	return nil
 }
 
+// Synchronously starts the language server and all associated components.
+// Returns only when all components in lspwatch have shut down.
 func (lspwatchInstance *LspwatchInstance) Run() {
 	logger := lspwatchInstance.logger
 	serverCmd := lspwatchInstance.serverCmd
+	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
 	processWatcher := lspwatchInstance.processWatcher
 
 	launchInterruptListener(serverCmd, logger)
+	exporter.Start()
 	proxyHandler.Launch(lspwatchInstance.stdoutPipe, lspwatchInstance.stdinPipe)
 	processWatcher.Launch()
+
+	logger.Info("lspwatch proxy and process watcher started")
 
 	exitCode := 0
 
@@ -96,6 +120,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 // all shutdowns to complete before exiting.
 func (lspwatchInstance *LspwatchInstance) shutdown(exitCode int) {
 	logger := lspwatchInstance.logger
+	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
 	processWatcher := lspwatchInstance.processWatcher
 
@@ -111,13 +136,22 @@ func (lspwatchInstance *LspwatchInstance) shutdown(exitCode int) {
 
 	proxyHandler.Wait()
 	processWatcher.Wait()
-	lspwatchInstance.Release()
+
+	// Shut down exporter only after proxy handler and process watcher have
+	// flushed their metrics and exited.
+	err = exporter.Shutdown()
+	if err != nil {
+		logger.Errorf("error shutting down exporter: %v", err)
+	}
+
+	exporter.Wait()
+	logger.Info("metrics exporter shutdown complete")
 
 	logger.Info("lspwatch shutdown complete. goodbye!")
-
-	err = lspwatchInstance.logFile.Close()
+	err = lspwatchInstance.Release()
 	if err != nil {
-		logger.Errorf("error closing log file: %v", err)
+		// TODO: Should this be Fatalf??
+		logger.Errorf("error releasing lspwatch resources: %v", err)
 	}
 
 	os.Exit(exitCode)
@@ -125,7 +159,11 @@ func (lspwatchInstance *LspwatchInstance) shutdown(exitCode int) {
 
 // NOTE: This starts the language server process. Proxying and monitoring facilities
 // are not started until Run() is called.
-func NewLspwatchInstance(serverShellCommand string, args []string, cfgFilePath string) (LspwatchInstance, error) {
+func NewLspwatchInstance(
+	serverShellCommand string,
+	args []string,
+	cfgFilePath string,
+) (LspwatchInstance, error) {
 	logger, logFile, err := lspwatch_io.CreateLogger("lspwatch.log", true)
 	if err != nil {
 		return LspwatchInstance{}, fmt.Errorf("error creating logger: %v", err)
@@ -183,7 +221,8 @@ func NewLspwatchInstance(serverShellCommand string, args []string, cfgFilePath s
 				logger.Errorf("error getting total system memory: %v", err)
 				return ""
 			}
-			return telemetry.TagValue(fmt.Sprintf("%v", vmem.Total))
+			totalGB := vmem.Total / (1024 * 1024 * 1024)
+			return telemetry.TagValue(fmt.Sprintf("%v", totalGB))
 		},
 		telemetry.User: func() telemetry.TagValue {
 			curr, err := user.Current()
@@ -213,6 +252,7 @@ func NewLspwatchInstance(serverShellCommand string, args []string, cfgFilePath s
 
 	return LspwatchInstance{
 		cfg:            cfg,
+		exporter:       exporter,
 		logger:         logger,
 		logFile:        logFile,
 		proxyHandler:   proxyHandler,
@@ -277,12 +317,15 @@ func launchInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	}()
 }
 
-func newMetricsExporter(cfg config.LspwatchConfig, logger *logrus.Logger) (telemetry.MetricsExporter, error) {
+func newMetricsExporter(
+	cfg config.LspwatchConfig,
+	logger *logrus.Logger,
+) (telemetry.MetricsExporter, error) {
 	var exporter telemetry.MetricsExporter
 
 	switch cfg.Exporter {
 	case "opentelemetry":
-		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry, logger)
+		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry)
 		if err != nil {
 			return nil, fmt.Errorf("error creating OpenTelemetry exporter: %v", err)
 		}

@@ -103,18 +103,12 @@ func (pw *ProcessWatcher) Shutdown() error {
 		pw.incomingShutdown = nil
 	}
 
-	err := pw.metricsRegistry.Shutdown()
-	if err != nil {
-		return fmt.Errorf("error shutting down metrics registry: %v", err)
-	}
 	return nil
 }
 
 func (pw *ProcessWatcher) Wait() {
 	pw.wg.Wait()
 	pw.logger.Info("process watcher monitors shutdown complete")
-	pw.metricsRegistry.Wait()
-	pw.logger.Info("process watcher metrics registry shutdown complete")
 }
 
 func (pw *ProcessWatcher) ProcessExited() chan error {

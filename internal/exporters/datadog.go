@@ -30,6 +30,9 @@ type DatadogMetricsExporter struct {
 
 var _ telemetry.MetricsExporter = &DatadogMetricsExporter{}
 
+const batchTimeout = 30 * time.Second
+const batchSize = 100
+
 // No-op. No need to register metrics for the Datadog exporter.
 func (dme *DatadogMetricsExporter) RegisterMetric(registration telemetry.MetricRegistration) error {
 	return nil
@@ -40,16 +43,16 @@ func (dme *DatadogMetricsExporter) EmitMetric(metric telemetry.MetricRecording) 
 	return nil
 }
 
-// TODO: This should NOT block. Add a Wait method to interface.
+func (dme *DatadogMetricsExporter) Start() error {
+	dme.wg.Add(1)
+	go dme.runMetricsBatchHandler()
+	return nil
+}
+
 func (dme *DatadogMetricsExporter) Shutdown() error {
 	if dme.metricsChan != nil {
 		close(dme.metricsChan)
 		dme.metricsChan = nil
-	}
-
-	if dme.logFile != nil {
-		dme.logFile.Close()
-		dme.logFile = nil
 	}
 
 	return nil
@@ -59,11 +62,18 @@ func (dme *DatadogMetricsExporter) Wait() {
 	dme.wg.Wait()
 }
 
+func (dme *DatadogMetricsExporter) Release() error {
+	if dme.logFile != nil {
+		dme.logFile.Close()
+		dme.logFile = nil
+	}
+	return nil
+}
+
 func (dme *DatadogMetricsExporter) SetGlobalTags(tags ...telemetry.Tag) {
 	dme.globalTags = tags
 }
 
-// TODO: This should not run the batch handler. Create a Start()/Launch() method.
 func NewDatadogMetricsExporter(cfg *config.DatadogConfig) (*DatadogMetricsExporter, error) {
 	logger, logFile, err := io.CreateLogger("datadog.log", true)
 	if err != nil {
@@ -113,8 +123,6 @@ func NewDatadogMetricsExporter(cfg *config.DatadogConfig) (*DatadogMetricsExport
 		logger:           logger,
 		logFile:          logFile,
 	}
-
-	go exporter.runMetricsBatchHandler()
 
 	return &exporter, nil
 }
@@ -203,18 +211,17 @@ func (dme *DatadogMetricsExporter) processMetricsBatch(
 }
 
 func (dme *DatadogMetricsExporter) runMetricsBatchHandler() {
-	defer dme.wg.Done()
-
-	const timeout = 30 * time.Second
-	const batchSize = 100
-
 	var internalWg sync.WaitGroup
-	defer internalWg.Wait()
+
+	defer func() {
+		internalWg.Wait()
+		dme.wg.Done()
+	}()
 
 	var batch []telemetry.MetricRecording
-	timer := time.NewTimer(timeout)
+	timer := time.NewTimer(batchTimeout)
 
-	dme.logger.Info("started datadog exporter...")
+	dme.logger.Info("started Datadog exporter")
 
 	for {
 		select {
@@ -225,7 +232,7 @@ func (dme *DatadogMetricsExporter) runMetricsBatchHandler() {
 				go dme.processMetricsBatch(batch, &internalWg)
 				batch = nil
 			}
-			timer.Reset(timeout)
+			timer.Reset(batchTimeout)
 		case metric, ok := <-dme.metricsChan:
 			if !ok { // Channel closed
 				dme.logger.Info("metrics channel closed. flushing metrics batch")
@@ -243,7 +250,7 @@ func (dme *DatadogMetricsExporter) runMetricsBatchHandler() {
 				dme.logger.Info("full batch reached. flushing.")
 				go dme.processMetricsBatch(batch, &internalWg)
 				batch = nil
-				timer.Reset(timeout)
+				timer.Reset(batchTimeout)
 			}
 		}
 	}

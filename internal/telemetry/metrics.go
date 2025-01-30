@@ -4,13 +4,21 @@ import (
 	"fmt"
 )
 
+// TODO: I am not so sure about my decision to use async Shutdown().
+// I will probably undo this in a future PR.
 type MetricsExporter interface {
 	RegisterMetric(registration MetricRegistration) error
 	EmitMetric(metric MetricRecording) error
 	SetGlobalTags(tags ...Tag)
+
 	// Must be idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 	Shutdown() error
+	// Asynchronously starts the exporter.
+	Start() error
+	// Block until the exporter has shut down.
 	Wait()
+	// Release any held resources like open log files.
+	Release() error
 }
 
 const (
@@ -87,15 +95,6 @@ func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
 
 func (mr *MetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
 	return mr.enabled[AvailableMetric(metric)]
-}
-
-// Idempotent and non-blocking. Use Wait() to block until shutdown is complete.
-func (mr *MetricsRegistry) Shutdown() error {
-	return mr.exporter.Shutdown()
-}
-
-func (mr *MetricsRegistry) Wait() {
-	mr.exporter.Wait()
 }
 
 func NewMetricsRegistry(exporter MetricsExporter, availableMetrics map[AvailableMetric]MetricRegistration) MetricsRegistry {

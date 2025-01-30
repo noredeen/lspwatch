@@ -19,7 +19,7 @@ import (
 
 type RequestBookmark struct {
 	RequestTime time.Time
-	Method      *string
+	Method      string
 }
 
 type ProxyHandler struct {
@@ -51,19 +51,12 @@ func (ph *ProxyHandler) Shutdown() error {
 		ph.incomingShutdown = nil
 	}
 
-	err := ph.metricsRegistry.Shutdown()
-	if err != nil {
-		return fmt.Errorf("error shutting down metrics registry: %v", err)
-	}
-
 	return nil
 }
 
 func (ph *ProxyHandler) Wait() {
 	ph.listenersWaitGroup.Wait()
 	ph.logger.Info("proxy listeners shutdown complete")
-	ph.metricsRegistry.Wait()
-	ph.logger.Info("proxy metrics registry shutdown complete")
 }
 
 func (ph *ProxyHandler) Launch(
@@ -164,7 +157,7 @@ func (ph *ProxyHandler) listenServer(serverOutputPipe io.ReadCloser) {
 									telemetry.RequestDuration,
 									time.Now().Unix(),
 									duration.Seconds(),
-									telemetry.NewTag("method", telemetry.TagValue(*requestBookmark.Method)),
+									telemetry.NewTag("method", telemetry.TagValue(requestBookmark.Method)),
 								)
 								err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
 								if err != nil {
@@ -173,7 +166,10 @@ func (ph *ProxyHandler) listenServer(serverOutputPipe io.ReadCloser) {
 							}
 
 						} else {
-							ph.logger.Infof("received response for unbuffered request with ID=%v", serverMessage.Id.Value)
+							ph.logger.Infof(
+								"received response for unbuffered request with ID=%v",
+								serverMessage.Id.Value,
+							)
 						}
 					}
 				} else {
@@ -257,11 +253,14 @@ func (ph *ProxyHandler) listenClient(serverInputPipe io.WriteCloser) {
 					if clientMessage.Id != nil && clientMessage.Method != nil {
 						bookmark := RequestBookmark{
 							RequestTime: time.Now(),
-							Method:      clientMessage.Method,
+							Method:      *clientMessage.Method,
 						}
 						isNewKey := ph.requestBuffer.Set(clientMessage.Id.Value, bookmark)
 						if !isNewKey {
-							ph.logger.Infof("client request with ID=%v already exists in the buffer", clientMessage.Id.Value)
+							ph.logger.Infof(
+								"client request with ID=%v already exists in the buffer",
+								clientMessage.Id.Value,
+							)
 						}
 					} else if clientMessage.Method != nil && *clientMessage.Method == "exit" {
 						ph.logger.Info("received exit request from client")
