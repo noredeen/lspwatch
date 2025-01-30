@@ -14,6 +14,7 @@ import (
 	"github.com/noredeen/lspwatch/internal/telemetry"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
@@ -33,6 +34,7 @@ type MetricsOTelExporter struct {
 	meterProvider *sdkmetric.MeterProvider
 	meter         metric.Meter
 	histograms    map[string]metric.Float64Histogram
+	globalTags    []telemetry.Tag
 }
 
 var _ telemetry.MetricsExporter = &MetricsOTelExporter{}
@@ -67,17 +69,26 @@ func (ome *MetricsOTelExporter) RegisterMetric(registration telemetry.MetricRegi
 	return nil
 }
 
-// TODO: Add tags.
-func (ome *MetricsOTelExporter) EmitMetric(metric telemetry.MetricRecording) error {
-	if histogram, ok := ome.histograms[metric.Name]; ok {
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), emitMetricTimeout)
-		defer cancel()
-
-		histogram.Record(timeoutCtx, metric.Value)
-		return nil
-	} else {
-		return fmt.Errorf("histogram not found for metric: %s", metric.Name)
+func (ome *MetricsOTelExporter) EmitMetric(metricRecording telemetry.MetricRecording) error {
+	histogram, ok := ome.histograms[metricRecording.Name]
+	if !ok {
+		return fmt.Errorf("histogram not found for metric: %s", metricRecording.Name)
 	}
+
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), emitMetricTimeout)
+	defer cancel()
+
+	attrs := make([]attribute.KeyValue, 0, len(ome.globalTags)+len(*metricRecording.Tags))
+	for _, tag := range ome.globalTags {
+		attrs = append(attrs, attribute.String(tag.Key, string(tag.Value)))
+	}
+
+	for k, v := range *metricRecording.Tags {
+		attrs = append(attrs, attribute.String(k, string(v)))
+	}
+
+	histogram.Record(timeoutCtx, metricRecording.Value, metric.WithAttributes(attrs...))
+	return nil
 }
 
 // NOTE: Might have to rework this into invoking a function stored in the struct.
@@ -86,7 +97,12 @@ func (ome *MetricsOTelExporter) Shutdown() error {
 	return ome.meterProvider.Shutdown(context.Background())
 }
 
+// TODO
 func (ome *MetricsOTelExporter) Wait() {}
+
+func (ome *MetricsOTelExporter) SetGlobalTags(tags ...telemetry.Tag) {
+	ome.globalTags = tags
+}
 
 // TODO: Honor the context?
 func (e *fileExporter) Export(ctx context.Context, data *metricdata.ResourceMetrics) error {
@@ -275,7 +291,10 @@ func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Expo
 // exporter. Create a Start()/Launch() method for that.
 //
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logger *logrus.Logger) (*MetricsOTelExporter, error) {
+func NewMetricsOTelExporter(
+	cfg *config.OpenTelemetryConfig,
+	logger *logrus.Logger,
+) (*MetricsOTelExporter, error) {
 	logr := logrusr.New(logger)
 	// TODO: I don't think this works.
 	otel.SetLogger(logr)

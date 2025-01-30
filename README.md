@@ -1,6 +1,6 @@
 # lspwatch
 
-`lspwatch` is a configurable stdin/stdout proxy for the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/). It produces and exports telemetry for the language server and LSP request/response communication.
+`lspwatch` is a configurable stdin/stdout proxy for the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/) with built-in observability integrations. `lspwatch` produces telemetry for the language server and its LSP request/response communication, and exports it to your observability backend.
 
 <div align="center"><img align="center" width="780" alt="Screenshot 2025-01-18 at 7 25 44 PM" src="https://github.com/user-attachments/assets/119e046f-8c09-41ea-81db-ff45e9ec8d27" /></div>
 
@@ -16,10 +16,6 @@
 
     * Metric name: `lspwatch.server.rss`.
 
-* **Number of language server crashes**.
-
-    * Metric name: `lspwatch.server.crashes`.
-
 Users can optionally choose to tag metrics with:
 
 * `language_server`: name of language server binary (e.g `clangd`).
@@ -29,7 +25,18 @@ Users can optionally choose to tag metrics with:
 
 ## Why?
 
-TODO
+If you work on a sufficiently complex typed codebase, you'll find that language support features within modern editors like code completion, diagnostics, suggestions, etc. can become considerably slow. Much of the universally-hated sluggishness of code editors is due in large part to these advanced language features. To provide codebase-wide awarness, editors rely on language servers to provide answers to code queries by continually scanning the codebase and maintaining internal state representations.
+
+To quantify this sluggishness, we can monitor how editors interact with language servers. The duration of an LSP request can tell us how responsive an editor feels. More specifically, this metric can tell us how much (likely idle) time the developer spends waiting for their editor to respond to their edit.
+
+What we essentially have is a **real-time, constant, and accurate indicator of developer experience and productivity**. I have worked on DevEx teams with access to this kind of data, and it's proven to be essential for managing the local development experience at scale.
+
+With `lspwatch`, you get metrics related to the responsiveness of your editor, tagged with contextual details to help with analysis. You can split your metrics by machine configuration, operating system, even down to the user, and more! `lspwatch` can help you with:
+
+* **Monitoring and improving modularization in your codebase**: The nature of the dependency graph will impact the performance of language servers.
+* **Monitoring the impact of language version upgrades on the coding experience**: Any immediate improvements or regressions in language servers will can be noticed and acted on quickly.
+* **Identifying potentially misconfigured local development setups or faulty machines**.
+* **Spotting general usage trends in code editors**.
 
 ## Installation
 

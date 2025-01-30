@@ -1,5 +1,7 @@
 exporter: datadog
 env_file: datadog.env
+tags:
+  - os
 datadog:
   client_api_key_env_var: DD_CLIENT_API_KEY
   client_app_key_env_var: DD_CLIENT_APP_KEY

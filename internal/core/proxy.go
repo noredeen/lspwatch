@@ -164,7 +164,7 @@ func (ph *ProxyHandler) listenServer(serverOutputPipe io.ReadCloser) {
 									telemetry.RequestDuration,
 									time.Now().Unix(),
 									duration.Seconds(),
-									telemetry.NewTag("method", *requestBookmark.Method),
+									telemetry.NewTag("method", telemetry.TagValue(*requestBookmark.Method)),
 								)
 								err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
 								if err != nil {

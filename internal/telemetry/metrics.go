@@ -7,6 +7,7 @@ import (
 type MetricsExporter interface {
 	RegisterMetric(registration MetricRegistration) error
 	EmitMetric(metric MetricRecording) error
+	SetGlobalTags(tags ...Tag)
 	// Must be idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 	Shutdown() error
 	Wait()
@@ -23,8 +24,18 @@ const (
 	ServerRSS       AvailableMetric = "lspwatch.server.rss"
 )
 
+const (
+	OS             AvailableTag = "os"
+	LanguageServer AvailableTag = "language_server"
+	User           AvailableTag = "user"
+	RAM            AvailableTag = "ram"
+)
+
 type AvailableMetric string
+type AvailableTag string
 type MetricKind int
+
+type TagValue string
 
 type MetricsRegistry struct {
 	available map[AvailableMetric]MetricRegistration
@@ -43,12 +54,12 @@ type MetricRecording struct {
 	Name      string
 	Timestamp int64
 	Value     float64
-	Tags      *map[string]string
+	Tags      *map[string]TagValue
 }
 
 type Tag struct {
 	Key   string
-	Value string
+	Value TagValue
 }
 
 func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
@@ -95,7 +106,7 @@ func NewMetricsRegistry(exporter MetricsExporter, availableMetrics map[Available
 	}
 }
 
-func NewTag(key string, value string) Tag {
+func NewTag(key string, value TagValue) Tag {
 	return Tag{
 		Key:   key,
 		Value: value,
@@ -108,7 +119,7 @@ func NewMetricRecording(
 	value float64,
 	tags ...Tag,
 ) MetricRecording {
-	tagsMap := make(map[string]string)
+	tagsMap := make(map[string]TagValue)
 	for _, tag := range tags {
 		tagsMap[tag.Key] = tag.Value
 	}

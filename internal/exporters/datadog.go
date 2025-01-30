@@ -22,6 +22,7 @@ type DatadogMetricsExporter struct {
 	metricsApiClient *datadogV2.MetricsApi
 	datadogContext   context.Context
 	metricsChan      chan telemetry.MetricRecording
+	globalTags       []telemetry.Tag
 	wg               *sync.WaitGroup
 	logger           *logrus.Logger
 	logFile          *os.File
@@ -56,6 +57,10 @@ func (dme *DatadogMetricsExporter) Shutdown() error {
 
 func (dme *DatadogMetricsExporter) Wait() {
 	dme.wg.Wait()
+}
+
+func (dme *DatadogMetricsExporter) SetGlobalTags(tags ...telemetry.Tag) {
+	dme.globalTags = tags
 }
 
 // TODO: This should not run the batch handler. Create a Start()/Launch() method.
@@ -124,17 +129,21 @@ func computeTimeseriesId(metric telemetry.MetricRecording) string {
 
 	result := metric.Name + ";"
 	for _, k := range keys {
-		result += k + "=" + tags[k] + ";"
+		result += k + "=" + string(tags[k]) + ";"
 	}
 
 	hash := sha256.Sum256([]byte(result))
 	return hex.EncodeToString(hash[:])
 }
 
+func getTagString(key string, value string) string {
+	return key + ":" + value
+}
+
 func getTags(metric telemetry.MetricRecording) []string {
 	tags := []string{}
 	for key, value := range *metric.Tags {
-		tagString := key + ":" + value
+		tagString := getTagString(key, string(value))
 		tags = append(tags, tagString)
 	}
 	return tags
@@ -174,17 +183,23 @@ func (dme *DatadogMetricsExporter) processMetricsBatch(
 		}
 
 		timeseries := datadogV2.NewMetricSeries(metricName, points)
+		for _, tag := range dme.globalTags {
+			metricTags = append(metricTags, getTagString(tag.Key, string(tag.Value)))
+		}
 		timeseries.SetTags(metricTags)
 		timeseriesColl = append(timeseriesColl, *timeseries)
 	}
 
 	payload := datadogV2.NewMetricPayload(timeseriesColl)
-	// TODO: add deadline
+	// TODO: Units.
+	// TODO: Add deadline.
 	_, r, err := dme.metricsApiClient.SubmitMetrics(dme.datadogContext, *payload)
 	if err != nil {
 		dme.logger.Errorf("error seding metrics batch to Datadog: %v", err)
+	} else {
+		dme.logger.Infof("received %v response from Datadog", r.Status)
 	}
-	dme.logger.Infof("full http response (%v) from datadog: %v", r.Status, r)
+
 }
 
 func (dme *DatadogMetricsExporter) runMetricsBatchHandler() {

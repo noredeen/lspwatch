@@ -6,6 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
+	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	"github.com/noredeen/lspwatch/internal/exporters"
 	lspwatch_io "github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/sirupsen/logrus"
 )
 
@@ -165,6 +169,38 @@ func NewLspwatchInstance(serverShellCommand string, args []string, cfgFilePath s
 		logger.Fatalf("error creating metrics exporter: %v", err)
 	}
 
+	tagGetters := map[telemetry.AvailableTag]func() telemetry.TagValue{
+		telemetry.OS: func() telemetry.TagValue {
+			return telemetry.TagValue(runtime.GOOS)
+		},
+		telemetry.LanguageServer: func() telemetry.TagValue {
+			// TODO: This is not robust.
+			return telemetry.TagValue(filepath.Base(serverCmd.Path))
+		},
+		telemetry.RAM: func() telemetry.TagValue {
+			vmem, err := mem.VirtualMemory()
+			if err != nil {
+				logger.Errorf("error getting total system memory: %v", err)
+				return ""
+			}
+			return telemetry.TagValue(fmt.Sprintf("%v", vmem.Total))
+		},
+		telemetry.User: func() telemetry.TagValue {
+			curr, err := user.Current()
+			if err != nil {
+				logger.Errorf("error getting current user: %v", err)
+				return ""
+			}
+			return telemetry.TagValue(curr.Username)
+		},
+	}
+
+	tags, err := getTagValues(&cfg, tagGetters)
+	if err != nil {
+		logger.Fatalf("error getting tag values: %v", err)
+	}
+	exporter.SetGlobalTags(tags...)
+
 	proxyHandler, err := core.NewProxyHandler(exporter, &cfg, logger)
 	if err != nil {
 		logger.Fatalf("error initializing LSP request handler: %v", err)
@@ -185,6 +221,23 @@ func NewLspwatchInstance(serverShellCommand string, args []string, cfgFilePath s
 		stdoutPipe:     stdoutPipe,
 		stdinPipe:      stdinPipe,
 	}, nil
+}
+
+func getTagValues(
+	cfg *config.LspwatchConfig,
+	tagGetters map[telemetry.AvailableTag]func() telemetry.TagValue,
+) ([]telemetry.Tag, error) {
+	tags := make([]telemetry.Tag, 0, len(cfg.Tags))
+	for _, tag := range cfg.Tags {
+		tagGetter, ok := tagGetters[telemetry.AvailableTag(tag)]
+		if !ok {
+			return []telemetry.Tag{}, fmt.Errorf("tag '%v' not supported", tag)
+		}
+
+		tags = append(tags, telemetry.NewTag(tag, tagGetter()))
+	}
+
+	return tags, nil
 }
 
 func getConfig(path string) (config.LspwatchConfig, error) {

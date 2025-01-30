@@ -13,6 +13,10 @@ import (
 // - [x] support -c or --config-file
 // - [x] finish datadog exporter
 // - [x] finish otel file exporter
+// - [ ] tags
+// - [ ] units in datadog exporter
+// - [ ] define in config file which methods to record
+
 // - [ ] report resource consumption for server process
 // - [ ] make request buffer thread-safe?
 // - [ ] better log file management
