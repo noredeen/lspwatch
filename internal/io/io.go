@@ -34,6 +34,8 @@ type LSPServerMessage struct {
 	}
 }
 
+// io.Reader implementation that captures the first complete MIME header
+// within the buffer.
 type HeaderCaptureReader struct {
 	reader  io.Reader
 	buffer  bytes.Buffer
@@ -41,7 +43,7 @@ type HeaderCaptureReader struct {
 }
 
 type LSPReadResult struct {
-	Headers *textproto.MIMEHeader
+	Headers textproto.MIMEHeader
 	RawBody *[]byte
 	Err     error
 }
@@ -53,6 +55,7 @@ type LoggingReader struct {
 }
 
 var _ io.Reader = &LoggingReader{}
+var _ io.Reader = &HeaderCaptureReader{}
 
 func (lr *LoggingReader) Read(p []byte) (n int, err error) {
 	n, err = lr.r.Read(p)
@@ -100,6 +103,7 @@ func (hcr *HeaderCaptureReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// Returns the bytes captured by the reader through the end of the first MIME header.
 func (hcr *HeaderCaptureReader) CapturedBytes() []byte {
 	return hcr.buffer.Bytes()
 }
@@ -152,6 +156,7 @@ func ReadLSPMessage(
 		}
 	}
 
+	// TODO: Why not read into a large enough buffer one time?? What was I thinking lol.
 	requestContent := []byte{}
 	for i := 0; i < contentByteCnt; i++ {
 		buffer := make([]byte, 1)
@@ -175,7 +180,7 @@ func ReadLSPMessage(
 	rawLspRequest = append(rawLspRequest, requestContent...)
 
 	return LSPReadResult{
-		Headers: &headers,
+		Headers: headers,
 		RawBody: &rawLspRequest,
 	}
 }

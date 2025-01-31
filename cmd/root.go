@@ -10,9 +10,7 @@ import (
 )
 
 // TODO:
-// - [ ] tags
 // - [ ] units in datadog exporter
-// - [ ] define in config file which methods to record
 // - [ ] make request buffer thread-safe?
 // - [ ] better log file management
 
