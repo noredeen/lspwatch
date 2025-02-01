@@ -162,6 +162,32 @@ datadog:
 			expectedCfg: LspwatchConfig{},
 			err:         true,
 		},
+
+		{
+			name: "invalid datadog batch size",
+			rawYaml: `
+exporter: datadog
+env_file: .env
+datadog:
+  client_api_key_env_var: CLIENT_API_KEY
+  client_app_key_env_var: CLIENT_APP_KEY
+  exporter_batch_size: 800`,
+			expectedCfg: LspwatchConfig{},
+			err:         true,
+		},
+
+		{
+			name: "invalid datadog batch timeout",
+			rawYaml: `
+exporter: datadog
+env_file: .env
+datadog:
+  client_api_key_env_var: CLIENT_API_KEY
+  client_app_key_env_var: CLIENT_APP_KEY
+  exporter_batch_timeout: 0`,
+			expectedCfg: LspwatchConfig{},
+			err:         true,
+		},
 	}
 
 	for _, testCase := range testCases {

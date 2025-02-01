@@ -42,12 +42,10 @@ func (pw *ProcessWatcher) Launch() error {
 	go func() {
 		// TODO: use the returned state value
 		_, err := pw.process.Wait()
+		pw.logger.Info("language server process exited")
 		pw.mu.Lock()
-		if pw.processExitedChan != nil {
-			pw.processExited = true
-			pw.processExitedChan <- err
-			pw.processExitedChan = nil
-		}
+		pw.processExited = true
+		pw.processExitedChan <- err
 		pw.mu.Unlock()
 	}()
 
@@ -93,6 +91,7 @@ func (pw *ProcessWatcher) Launch() error {
 		}
 	}()
 
+	pw.logger.Info("process watcher started")
 	return nil
 }
 
@@ -115,7 +114,6 @@ func (pw *ProcessWatcher) ProcessExited() chan error {
 	return pw.processExitedChan
 }
 
-// TODO: Move to MetricsRegistry
 func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {

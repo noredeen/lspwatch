@@ -4,8 +4,7 @@ import (
 	"fmt"
 )
 
-// TODO: I am not so sure about my decision to use async Shutdown().
-// I will probably undo this in a future PR.
+// TODO: I am not so sure about my decision to use async Start/Shutdown.
 type MetricsExporter interface {
 	RegisterMetric(registration MetricRegistration) error
 	EmitMetric(metric MetricRecording) error
@@ -13,11 +12,11 @@ type MetricsExporter interface {
 
 	// Must be idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 	Shutdown() error
-	// Asynchronously starts the exporter.
+	// Runs the exporter asynchronously.
 	Start() error
-	// Block until the exporter has shut down.
+	// Blocks until the exporter has flushed all held metrics and shut down.
 	Wait()
-	// Release any held resources like open log files.
+	// Frees any resources (should be called after Wait)
 	Release() error
 }
 

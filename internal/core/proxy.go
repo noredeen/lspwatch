@@ -83,7 +83,6 @@ func (ph *ProxyHandler) raiseShutdownRequest() {
 	ph.outgoingShutdown <- struct{}{}
 }
 
-// TODO: Move to MetricsRegistry
 func (ph *ProxyHandler) registerMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {

@@ -40,6 +40,8 @@ type TLSConfig struct {
 type DatadogConfig struct {
 	ClientApiKeyEnvVar string `yaml:"client_api_key_env_var" validate:"required"`
 	ClientAppKeyEnvVar string `yaml:"client_app_key_env_var" validate:"required"`
+	BatchSize          *int   `yaml:"exporter_batch_size" validate:"omitnil,gte=1,lte=500"`
+	BatchTimeout       *int   `yaml:"exporter_batch_timeout" validate:"omitnil,gte=1,lte=250"`
 	Site               string `yaml:"site" validate:"omitempty,oneof=datadoghq.com us3.datadoghq.com us5.datadoghq.com ap1.datadoghq.com datadoghq.eu ddog-gov.com"`
 	DisableCompression *bool  `yaml:"disable_compression" validate:"omitnil"`
 }
