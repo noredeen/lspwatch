@@ -19,6 +19,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const defaultBatchSize = 100
+const defaultBatchTimeout = 30 * time.Second
+
 type metricsProcessor interface {
 	setGlobalTags(tags ...telemetry.Tag)
 	processBatch(batch []telemetry.MetricRecording, wg *sync.WaitGroup, logger *logrus.Logger)
@@ -94,10 +97,6 @@ func (dme *DatadogMetricsExporter) Start() error {
 	dme.mu.Lock()
 	defer dme.mu.Unlock()
 
-	// if dme.metricsChan == nil {
-	// 	return fmt.Errorf("exporter not initialized")
-	// }
-
 	if dme.running {
 		return nil
 	}
@@ -117,11 +116,6 @@ func (dme *DatadogMetricsExporter) Shutdown() error {
 	}
 
 	close(dme.metricsChan)
-
-	// if dme.metricsChan != nil {
-	// 	close(dme.metricsChan)
-	// 	dme.metricsChan = nil
-	// }
 
 	dme.running = false
 	return nil
@@ -208,6 +202,15 @@ func NewDatadogMetricsExporter(
 	client := datadog.NewAPIClient(datadogCfg)
 	metricsApi := datadogV2.NewMetricsApi(client)
 
+	batchSize := defaultBatchSize
+	if cfg.BatchSize != nil {
+		batchSize = *cfg.BatchSize
+	}
+	batchTimeout := defaultBatchTimeout
+	if cfg.BatchTimeout != nil {
+		batchTimeout = time.Duration(*cfg.BatchTimeout) * time.Second
+	}
+
 	var wg sync.WaitGroup
 	metricsChan := make(chan telemetry.MetricRecording)
 	exporter := DatadogMetricsExporter{
@@ -215,14 +218,13 @@ func NewDatadogMetricsExporter(
 			metricsApiClient: metricsApi,
 			datadogContext:   datadogCtx,
 		},
-		metricsChan: metricsChan,
-		// TODO:
-		// batchSize:   cfg.BatchSize,
-		// batchTimeout: cfg.BatchTimeout,
-		mu:      &sync.Mutex{},
-		wg:      &wg,
-		logger:  logger,
-		logFile: logFile,
+		metricsChan:  metricsChan,
+		batchSize:    batchSize,
+		batchTimeout: batchTimeout,
+		mu:           &sync.Mutex{},
+		wg:           &wg,
+		logger:       logger,
+		logFile:      logFile,
 	}
 
 	return &exporter, nil

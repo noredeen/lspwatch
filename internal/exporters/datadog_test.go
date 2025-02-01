@@ -255,6 +255,11 @@ func TestDatadogMetricsExporter_RegisterMetric(t *testing.T) {
 
 }
 
+// TODO
+func TestNewDatadogMetricsExporter(t *testing.T) {
+
+}
+
 func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 	voidLogger := logrus.New()
 	voidLogger.SetOutput(io.Discard)
