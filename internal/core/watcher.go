@@ -114,10 +114,10 @@ func (pw *ProcessWatcher) ProcessExited() chan error {
 	return pw.processExitedChan
 }
 
-func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
+func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {
-		err := pw.metricsRegistry.RegisterMetric(telemetry.ServerRSS)
+		err := pw.metricsRegistry.EnableMetric(telemetry.ServerRSS)
 		if err != nil {
 			return err
 		}
@@ -125,7 +125,7 @@ func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	}
 
 	for _, metric := range *cfg.Metrics {
-		err := pw.metricsRegistry.RegisterMetric(telemetry.AvailableMetric(metric))
+		err := pw.metricsRegistry.EnableMetric(telemetry.AvailableMetric(metric))
 		if err != nil {
 			return err
 		}
@@ -134,7 +134,12 @@ func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	return nil
 }
 
-func NewProcessWatcher(process *os.Process, exporter telemetry.MetricsExporter, cfg *config.LspwatchConfig, logger *logrus.Logger) (*ProcessWatcher, error) {
+func NewProcessWatcher(
+	process *os.Process,
+	exporter telemetry.MetricsExporter,
+	cfg *config.LspwatchConfig,
+	logger *logrus.Logger,
+) (*ProcessWatcher, error) {
 	pw := ProcessWatcher{
 		metricsRegistry:   telemetry.NewMetricsRegistry(exporter, availableServerMetrics),
 		process:           process,
@@ -145,9 +150,9 @@ func NewProcessWatcher(process *os.Process, exporter telemetry.MetricsExporter, 
 		wg:                &sync.WaitGroup{},
 	}
 
-	err := pw.registerMetrics(cfg)
+	err := pw.enableMetrics(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics: %v", err)
+		return nil, fmt.Errorf("error enabling metrics: %v", err)
 	}
 
 	return &pw, nil

@@ -83,10 +83,10 @@ func (ph *ProxyHandler) raiseShutdownRequest() {
 	ph.outgoingShutdown <- struct{}{}
 }
 
-func (ph *ProxyHandler) registerMetrics(cfg *config.LspwatchConfig) error {
+func (ph *ProxyHandler) enableMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {
-		err := ph.metricsRegistry.RegisterMetric(telemetry.RequestDuration)
+		err := ph.metricsRegistry.EnableMetric(telemetry.RequestDuration)
 		if err != nil {
 			return err
 		}
@@ -94,7 +94,7 @@ func (ph *ProxyHandler) registerMetrics(cfg *config.LspwatchConfig) error {
 	}
 
 	for _, metric := range *cfg.Metrics {
-		err := ph.metricsRegistry.RegisterMetric(telemetry.AvailableMetric(metric))
+		err := ph.metricsRegistry.EnableMetric(telemetry.AvailableMetric(metric))
 		if err != nil {
 			return err
 		}
@@ -324,9 +324,9 @@ func NewProxyHandler(
 		listenersWaitGroup: &sync.WaitGroup{},
 	}
 
-	err := rh.registerMetrics(cfg)
+	err := rh.enableMetrics(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics: %v", err)
+		return nil, fmt.Errorf("error enabling metrics: %v", err)
 	}
 
 	return &rh, nil

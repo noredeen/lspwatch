@@ -45,9 +45,9 @@ type MetricKind int
 type TagValue string
 
 type MetricsRegistry struct {
-	available map[AvailableMetric]MetricRegistration
-	enabled   map[AvailableMetric]bool
-	exporter  MetricsExporter
+	registered map[AvailableMetric]MetricRegistration
+	enabled    map[AvailableMetric]bool
+	exporter   MetricsExporter
 }
 
 type MetricRegistration struct {
@@ -69,10 +69,10 @@ type Tag struct {
 	Value TagValue
 }
 
-func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
-	registration, ok := mr.available[metric]
+func (mr *MetricsRegistry) EnableMetric(metric AvailableMetric) error {
+	registration, ok := mr.registered[metric]
 	if !ok {
-		return fmt.Errorf("metric %s is not supported", metric)
+		return fmt.Errorf("cannot enable the unregistered metric %s", metric)
 	}
 
 	err := mr.exporter.RegisterMetric(registration)
@@ -85,6 +85,7 @@ func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
 }
 
 // Skips emitting the metric if it's not enabled within the registry.
+// Helpful for reducing nesting from IsMetricEnabled() checks.
 func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
 	if !mr.enabled[AvailableMetric(metric.Name)] {
 		return nil
@@ -98,11 +99,11 @@ func (mr *MetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
 	return mr.enabled[AvailableMetric(metric)]
 }
 
-func NewMetricsRegistry(exporter MetricsExporter, availableMetrics map[AvailableMetric]MetricRegistration) MetricsRegistry {
+func NewMetricsRegistry(exporter MetricsExporter, registeredMetrics map[AvailableMetric]MetricRegistration) MetricsRegistry {
 	return MetricsRegistry{
-		available: availableMetrics,
-		enabled:   make(map[AvailableMetric]bool),
-		exporter:  exporter,
+		registered: registeredMetrics,
+		enabled:    make(map[AvailableMetric]bool),
+		exporter:   exporter,
 	}
 }
 
