@@ -19,6 +19,7 @@ import (
 	lspwatch_io "github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
 	"github.com/shirou/gopsutil/v4/mem"
+	"github.com/shirou/gopsutil/v4/process"
 	"github.com/sirupsen/logrus"
 )
 
@@ -65,10 +66,10 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 	proxyHandler := lspwatchInstance.proxyHandler
 	processWatcher := lspwatchInstance.processWatcher
 
-	launchInterruptListener(serverCmd, logger)
+	startInterruptListener(serverCmd, logger)
 	exporter.Start()
-	proxyHandler.Launch(lspwatchInstance.stdoutPipe, lspwatchInstance.stdinPipe)
-	processWatcher.Launch()
+	proxyHandler.Start(lspwatchInstance.stdoutPipe, lspwatchInstance.stdinPipe)
+	processWatcher.Start()
 
 	exitCode := 0
 
@@ -248,7 +249,19 @@ func NewLspwatchInstance(
 		logger.Fatalf("error initializing LSP request handler: %v", err)
 	}
 
-	processWatcher, err := core.NewProcessWatcher(serverCmd.Process, exporter, &cfg, logger)
+	processHandle := serverCmd.Process
+	processInfo, err := process.NewProcess(int32(processHandle.Pid))
+	if err != nil {
+		logger.Fatalf("error creating process info: %v", err)
+	}
+
+	processWatcher, err := core.NewProcessWatcher(
+		processHandle,
+		processInfo,
+		exporter,
+		&cfg,
+		logger,
+	)
 	if err != nil {
 		logger.Fatalf("error initializing process watcher: %v", err)
 	}
@@ -301,7 +314,7 @@ func getConfig(path string) (config.LspwatchConfig, error) {
 	return cfg, nil
 }
 
-func launchInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
+func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
 

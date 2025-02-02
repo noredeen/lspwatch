@@ -27,8 +27,8 @@ const (
 )
 
 const (
-	RequestDuration AvailableMetric = "lspwatch.request.duration"
-	ServerRSS       AvailableMetric = "lspwatch.server.rss"
+	RequestDuration AvailableMetric = "request.duration"
+	ServerRSS       AvailableMetric = "server.rss"
 )
 
 const (
@@ -87,9 +87,17 @@ func (mr *MetricsRegistry) EnableMetric(metric AvailableMetric) error {
 // Skips emitting the metric if it's not enabled within the registry.
 // Helpful for reducing nesting from IsMetricEnabled() checks.
 func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
+	registration, ok := mr.registered[AvailableMetric(metric.Name)]
+	if !ok {
+		return fmt.Errorf("cannot emit the unregistered metric %s", metric.Name)
+	}
+
 	if !mr.enabled[AvailableMetric(metric.Name)] {
 		return nil
 	}
+
+	// Replace configuration name with export name.
+	metric.Name = registration.Name
 
 	return mr.exporter.EmitMetric(metric)
 }

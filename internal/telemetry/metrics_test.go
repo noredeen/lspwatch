@@ -1,6 +1,9 @@
 package telemetry
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // type EmitMetricCall struct {
 // 	MetricArg MetricRecording
@@ -119,4 +122,91 @@ func TestMetricsRegistry_EnableMetric(t *testing.T) {
 	if len(exporter.registerMetricCalls) != 0 {
 		t.Errorf("expected no register metric calls, got %d", len(exporter.registerMetricCalls))
 	}
+}
+
+func TestMetricsRegistry_EmitMetric(t *testing.T) {
+	t.Run("emits metric if enabled", func(t *testing.T) {
+		t.Parallel()
+		exporter := &MockMetricsExporter{}
+		registry := MetricsRegistry{
+			exporter: exporter,
+			registered: map[AvailableMetric]MetricRegistration{
+				AvailableMetric("foo"): {
+					Kind:        Histogram,
+					Description: "foo",
+					Name:        "lspwatch.foo",
+					Unit:        "s",
+				},
+			},
+			enabled: map[AvailableMetric]bool{
+				AvailableMetric("foo"): true,
+			},
+		}
+
+		now := time.Now().Unix()
+		registry.EmitMetric(
+			NewMetricRecording(
+				AvailableMetric("foo"),
+				now,
+				1.0,
+			),
+		)
+
+		if len(exporter.emitMetricCalls) != 1 {
+			t.Errorf("expected 1 emit metric call in exporter, got %d", len(exporter.emitMetricCalls))
+		}
+
+		if exporter.emitMetricCalls[0].Name != "lspwatch.foo" {
+			t.Errorf("expected emit metric call in exporter to have metric name 'lspwatch.foo', got %s", exporter.emitMetricCalls[0].Name)
+		}
+
+		if exporter.emitMetricCalls[0].Timestamp != now {
+			t.Errorf("expected emit metric call in exporter to have timestamp %d, got %d", now, exporter.emitMetricCalls[0].Timestamp)
+		}
+	})
+
+	t.Run("does not emit metric if not registered or enabled", func(t *testing.T) {
+		t.Parallel()
+		exporter := &MockMetricsExporter{}
+		registry := MetricsRegistry{
+			exporter: exporter,
+			registered: map[AvailableMetric]MetricRegistration{
+				AvailableMetric("foo"): {
+					Kind:        Histogram,
+					Description: "foo",
+					Name:        "lspwatch.foo",
+					Unit:        "s",
+				},
+			},
+			enabled: map[AvailableMetric]bool{},
+		}
+
+		err := registry.EmitMetric(
+			NewMetricRecording(
+				AvailableMetric("foo"),
+				time.Now().Unix(),
+				1.0,
+			),
+		)
+
+		if err != nil {
+			t.Fatalf("expected no error emitting disabled metric 'foo', got %v", err)
+		}
+
+		if len(exporter.emitMetricCalls) != 0 {
+			t.Errorf("expected no emit metric call in exporter for disabled metric 'foo', got %d", len(exporter.emitMetricCalls))
+		}
+
+		err = registry.EmitMetric(
+			NewMetricRecording(
+				AvailableMetric("bar"),
+				time.Now().Unix(),
+				1.0,
+			),
+		)
+
+		if err == nil {
+			t.Fatalf("expected error emitting unregistered metric 'bar', got nil")
+		}
+	})
 }

@@ -70,7 +70,7 @@ func (ph *ProxyHandler) Wait() {
 	ph.logger.Info("proxy listeners shutdown complete")
 }
 
-func (ph *ProxyHandler) Launch(
+func (ph *ProxyHandler) Start(
 	serverOutputPipe io.ReadCloser,
 	serverInputPipe io.WriteCloser,
 ) {

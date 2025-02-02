@@ -12,9 +12,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type ProcessHandle interface {
+	Wait() (*os.ProcessState, error)
+}
+
+type ProcessInfo interface {
+	MemoryInfo() (*process.MemoryInfoStat, error)
+}
+
 type ProcessWatcher struct {
 	metricsRegistry   telemetry.MetricsRegistry
-	process           *os.Process
+	processHandle     ProcessHandle
+	processInfo       ProcessInfo
 	processExitedChan chan error
 	processExited     bool
 	incomingShutdown  chan struct{}
@@ -32,16 +41,11 @@ var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegis
 	},
 }
 
-func (pw *ProcessWatcher) Launch() error {
-	utilProc, err := process.NewProcess(int32(pw.process.Pid))
-	if err != nil {
-		return err
-	}
-
+func (pw *ProcessWatcher) Start() error {
 	// I'm ok with letting this goroutine run indefinitely (for now)
 	go func() {
 		// TODO: use the returned state value
-		_, err := pw.process.Wait()
+		_, err := pw.processHandle.Wait()
 		pw.logger.Info("language server process exited")
 		pw.mu.Lock()
 		pw.processExited = true
@@ -70,7 +74,7 @@ func (pw *ProcessWatcher) Launch() error {
 				pw.mu.Unlock()
 
 				if pw.metricsRegistry.IsMetricEnabled(telemetry.ServerRSS) {
-					memoryInfo, err := utilProc.MemoryInfo()
+					memoryInfo, err := pw.processInfo.MemoryInfo()
 					if err != nil {
 						pw.logger.Errorf("failed to get memory info: %v", err)
 						continue
@@ -135,14 +139,16 @@ func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 }
 
 func NewProcessWatcher(
-	process *os.Process,
+	processHandle ProcessHandle,
+	processInfo ProcessInfo,
 	exporter telemetry.MetricsExporter,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
 ) (*ProcessWatcher, error) {
 	pw := ProcessWatcher{
 		metricsRegistry:   telemetry.NewMetricsRegistry(exporter, availableServerMetrics),
-		process:           process,
+		processHandle:     processHandle,
+		processInfo:       processInfo,
 		processExitedChan: make(chan error),
 		incomingShutdown:  make(chan struct{}),
 		mu:                sync.Mutex{},
