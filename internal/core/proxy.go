@@ -32,15 +32,6 @@ type ProxyHandler struct {
 	logger             *logrus.Logger
 }
 
-var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
-	telemetry.RequestDuration: {
-		Kind:        telemetry.Histogram,
-		Name:        "lspwatch.request.duration",
-		Description: "Duration of LSP request",
-		Unit:        "s",
-	},
-}
-
 var defaultMeteredRequests = []string{
 	"initialize",
 	"textDocument/references",
@@ -299,6 +290,7 @@ func (ph *ProxyHandler) listenClient(serverInputPipe io.WriteCloser) {
 
 func NewProxyHandler(
 	exporter telemetry.MetricsExporter,
+	metricsRegistry telemetry.MetricsRegistry,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
 ) (*ProxyHandler, error) {
@@ -316,7 +308,7 @@ func NewProxyHandler(
 
 	rh := ProxyHandler{
 		meteredRequests:    meteredRequestsMap,
-		metricsRegistry:    telemetry.NewMetricsRegistry(exporter, availableLSPMetrics),
+		metricsRegistry:    metricsRegistry,
 		requestBuffer:      orderedmap.NewOrderedMap[string, RequestBookmark](),
 		outgoingShutdown:   make(chan struct{}),
 		incomingShutdown:   make(chan struct{}),

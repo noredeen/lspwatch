@@ -14,6 +14,7 @@ import (
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadogV2"
 	"github.com/noredeen/lspwatch/internal/config"
 	"github.com/noredeen/lspwatch/internal/telemetry"
+	"github.com/noredeen/lspwatch/internal/testutil"
 	"github.com/sirupsen/logrus"
 )
 
@@ -242,7 +243,7 @@ func TestDefaultMetricsProcessor_processBatch(t *testing.T) {
 	wg.Add(1)
 	processor.processBatch(batch, &wg, logger)
 	// This only checks that wg.Done() is called. Will be removed soon in favor of a context.
-	assertExitsAfter(t, func() { wg.Wait() }, 100*time.Millisecond)
+	testutil.AssertExitsAfter(t, func() { wg.Wait() }, 100*time.Millisecond)
 
 	client := processor.metricsApiClient.(*mockMetricsApi)
 	if !client.submitMetricsCalled {
@@ -274,7 +275,7 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 			t.Fatalf("expected Shutdown not to return an error, got %v", err)
 		}
 
-		assertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
 	})
 
 	t.Run("shutdown when already running", func(t *testing.T) {
@@ -291,7 +292,7 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 			t.Fatalf("expected Shutdown not to return an error, got %v", err)
 		}
 
-		assertExitsAfter(t, func() { metricsExporter.Wait() }, 3*time.Second)
+		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 3*time.Second)
 	})
 
 	t.Run("double shutdown when already running", func(t *testing.T) {
@@ -312,7 +313,7 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 			t.Fatalf("expected second Shutdown not to return an error, got %v", err)
 		}
 
-		assertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
 	})
 }
 
@@ -381,7 +382,7 @@ func TestDatadogMetricsExporter(t *testing.T) {
 		}
 
 		metricsExporter.Shutdown()
-		assertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
 	})
 
 	t.Run("timeout before full batch", func(t *testing.T) {
@@ -449,7 +450,7 @@ func TestDatadogMetricsExporter(t *testing.T) {
 		}
 
 		metricsExporter.Shutdown()
-		assertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
 	})
 
 	t.Run("shutdown before timeout or full batch", func(t *testing.T) {
@@ -518,7 +519,7 @@ func TestDatadogMetricsExporter(t *testing.T) {
 			}
 		}
 
-		assertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
 	})
 }
 
@@ -535,20 +536,5 @@ func createMetricsExporter(t *testing.T, batchSize int, batchTimeout time.Durati
 		logger:       voidLogger,
 		processor:    &mockMetricsProcessor{},
 		mu:           &sync.Mutex{},
-	}
-}
-
-func assertExitsAfter(t *testing.T, fn func(), timeout time.Duration) {
-	done := make(chan bool)
-	go func() {
-		fn()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		break
-	case <-time.After(timeout):
-		t.Errorf("expected exit after %s", timeout)
 	}
 }

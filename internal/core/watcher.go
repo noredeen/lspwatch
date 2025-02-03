@@ -24,21 +24,13 @@ type ProcessWatcher struct {
 	metricsRegistry   telemetry.MetricsRegistry
 	processHandle     ProcessHandle
 	processInfo       ProcessInfo
-	processExitedChan chan error
+	pollingInterval   time.Duration
 	processExited     bool
+	processExitedChan chan error
 	incomingShutdown  chan struct{}
 	logger            *logrus.Logger
 	mu                sync.Mutex
 	wg                *sync.WaitGroup
-}
-
-var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
-	telemetry.ServerRSS: {
-		Kind:        telemetry.Histogram,
-		Name:        "lspwatch.server.rss",
-		Description: "RSS of the language server process",
-		Unit:        "bytes", // TODO: Check if this is correct
-	},
 }
 
 func (pw *ProcessWatcher) Start() error {
@@ -46,6 +38,10 @@ func (pw *ProcessWatcher) Start() error {
 	go func() {
 		// TODO: use the returned state value
 		_, err := pw.processHandle.Wait()
+		if err != nil {
+			pw.logger.Errorf("error waiting for process to exit: %v", err)
+		}
+
 		pw.logger.Info("language server process exited")
 		pw.mu.Lock()
 		pw.processExited = true
@@ -53,7 +49,7 @@ func (pw *ProcessWatcher) Start() error {
 		pw.mu.Unlock()
 	}()
 
-	ticker := time.NewTicker(4 * time.Second)
+	ticker := time.NewTicker(pw.pollingInterval)
 	pw.wg.Add(1)
 	go func() {
 		defer func() {
@@ -141,14 +137,20 @@ func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 func NewProcessWatcher(
 	processHandle ProcessHandle,
 	processInfo ProcessInfo,
-	exporter telemetry.MetricsExporter,
+	metricsRegistry telemetry.MetricsRegistry,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
 ) (*ProcessWatcher, error) {
+	pollingInterval := 5 * time.Second
+	if cfg.PollingInterval != nil {
+		pollingInterval = time.Duration(*cfg.PollingInterval) * time.Second
+	}
+
 	pw := ProcessWatcher{
-		metricsRegistry:   telemetry.NewMetricsRegistry(exporter, availableServerMetrics),
 		processHandle:     processHandle,
 		processInfo:       processInfo,
+		metricsRegistry:   metricsRegistry,
+		pollingInterval:   pollingInterval,
 		processExitedChan: make(chan error),
 		incomingShutdown:  make(chan struct{}),
 		mu:                sync.Mutex{},

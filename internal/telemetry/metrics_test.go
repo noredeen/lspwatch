@@ -47,8 +47,8 @@ func (m *MockMetricsExporter) Wait() {}
 
 func (m *MockMetricsExporter) Release() error { return nil }
 
-func TestMetricsRegistry_IsMetricEnabled(t *testing.T) {
-	registry := MetricsRegistry{
+func TestDefaultMetricsRegistry_IsMetricEnabled(t *testing.T) {
+	registry := &DefaultMetricsRegistry{
 		registered: map[AvailableMetric]MetricRegistration{
 			AvailableMetric("foo"): {
 				Kind:        Histogram,
@@ -81,9 +81,9 @@ func TestMetricsRegistry_IsMetricEnabled(t *testing.T) {
 	}
 }
 
-func TestMetricsRegistry_EnableMetric(t *testing.T) {
+func TestDefaultMetricsRegistry_EnableMetric(t *testing.T) {
 	exporter := &MockMetricsExporter{}
-	registry := NewMetricsRegistry(
+	registry := NewDefaultMetricsRegistry(
 		exporter,
 		map[AvailableMetric]MetricRegistration{
 			AvailableMetric("foo"): {
@@ -124,11 +124,11 @@ func TestMetricsRegistry_EnableMetric(t *testing.T) {
 	}
 }
 
-func TestMetricsRegistry_EmitMetric(t *testing.T) {
+func TestDefaultMetricsRegistry_EmitMetric(t *testing.T) {
 	t.Run("emits metric if enabled", func(t *testing.T) {
 		t.Parallel()
 		exporter := &MockMetricsExporter{}
-		registry := MetricsRegistry{
+		registry := &DefaultMetricsRegistry{
 			exporter: exporter,
 			registered: map[AvailableMetric]MetricRegistration{
 				AvailableMetric("foo"): {
@@ -168,7 +168,7 @@ func TestMetricsRegistry_EmitMetric(t *testing.T) {
 	t.Run("does not emit metric if not registered or enabled", func(t *testing.T) {
 		t.Parallel()
 		exporter := &MockMetricsExporter{}
-		registry := MetricsRegistry{
+		registry := &DefaultMetricsRegistry{
 			exporter: exporter,
 			registered: map[AvailableMetric]MetricRegistration{
 				AvailableMetric("foo"): {

@@ -44,7 +44,13 @@ type MetricKind int
 
 type TagValue string
 
-type MetricsRegistry struct {
+type MetricsRegistry interface {
+	EnableMetric(metric AvailableMetric) error
+	EmitMetric(metric MetricRecording) error
+	IsMetricEnabled(metric AvailableMetric) bool
+}
+
+type DefaultMetricsRegistry struct {
 	registered map[AvailableMetric]MetricRegistration
 	enabled    map[AvailableMetric]bool
 	exporter   MetricsExporter
@@ -69,7 +75,7 @@ type Tag struct {
 	Value TagValue
 }
 
-func (mr *MetricsRegistry) EnableMetric(metric AvailableMetric) error {
+func (mr *DefaultMetricsRegistry) EnableMetric(metric AvailableMetric) error {
 	registration, ok := mr.registered[metric]
 	if !ok {
 		return fmt.Errorf("cannot enable the unregistered metric %s", metric)
@@ -86,7 +92,7 @@ func (mr *MetricsRegistry) EnableMetric(metric AvailableMetric) error {
 
 // Skips emitting the metric if it's not enabled within the registry.
 // Helpful for reducing nesting from IsMetricEnabled() checks.
-func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
+func (mr *DefaultMetricsRegistry) EmitMetric(metric MetricRecording) error {
 	registration, ok := mr.registered[AvailableMetric(metric.Name)]
 	if !ok {
 		return fmt.Errorf("cannot emit the unregistered metric %s", metric.Name)
@@ -103,12 +109,12 @@ func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
 }
 
 // Useful when producing the MetricRecording for EmitMetric() should be skipped.
-func (mr *MetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
+func (mr *DefaultMetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
 	return mr.enabled[AvailableMetric(metric)]
 }
 
-func NewMetricsRegistry(exporter MetricsExporter, registeredMetrics map[AvailableMetric]MetricRegistration) MetricsRegistry {
-	return MetricsRegistry{
+func NewDefaultMetricsRegistry(exporter MetricsExporter, registeredMetrics map[AvailableMetric]MetricRegistration) DefaultMetricsRegistry {
+	return DefaultMetricsRegistry{
 		registered: registeredMetrics,
 		enabled:    make(map[AvailableMetric]bool),
 		exporter:   exporter,

@@ -35,6 +35,24 @@ type LspwatchInstance struct {
 	stdinPipe      io.WriteCloser
 }
 
+var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
+	telemetry.RequestDuration: {
+		Kind:        telemetry.Histogram,
+		Name:        "lspwatch.request.duration",
+		Description: "Duration of LSP request",
+		Unit:        "s",
+	},
+}
+
+var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
+	telemetry.ServerRSS: {
+		Kind:        telemetry.Histogram,
+		Name:        "lspwatch.server.rss",
+		Description: "RSS of the language server process",
+		Unit:        "bytes", // TODO: Check if this is correct
+	},
+}
+
 func (lspwatchInstance *LspwatchInstance) Release() error {
 	var errors []error
 	err := lspwatchInstance.stdoutPipe.Close()
@@ -244,7 +262,8 @@ func NewLspwatchInstance(
 	}
 	exporter.SetGlobalTags(tags...)
 
-	proxyHandler, err := core.NewProxyHandler(exporter, &cfg, logger)
+	requestMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableLSPMetrics)
+	proxyHandler, err := core.NewProxyHandler(exporter, &requestMetricsRegistry, &cfg, logger)
 	if err != nil {
 		logger.Fatalf("error initializing LSP request handler: %v", err)
 	}
@@ -255,10 +274,11 @@ func NewLspwatchInstance(
 		logger.Fatalf("error creating process info: %v", err)
 	}
 
+	serverMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableServerMetrics)
 	processWatcher, err := core.NewProcessWatcher(
 		processHandle,
 		processInfo,
-		exporter,
+		&serverMetricsRegistry,
 		&cfg,
 		logger,
 	)
