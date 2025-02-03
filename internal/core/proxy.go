@@ -32,15 +32,6 @@ type ProxyHandler struct {
 	logger             *logrus.Logger
 }
 
-var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
-	telemetry.RequestDuration: {
-		Kind:        telemetry.Histogram,
-		Name:        "lspwatch.request.duration",
-		Description: "Duration of LSP request",
-		Unit:        "s",
-	},
-}
-
 var defaultMeteredRequests = []string{
 	"initialize",
 	"textDocument/references",
@@ -70,7 +61,7 @@ func (ph *ProxyHandler) Wait() {
 	ph.logger.Info("proxy listeners shutdown complete")
 }
 
-func (ph *ProxyHandler) Launch(
+func (ph *ProxyHandler) Start(
 	serverOutputPipe io.ReadCloser,
 	serverInputPipe io.WriteCloser,
 ) {
@@ -83,11 +74,10 @@ func (ph *ProxyHandler) raiseShutdownRequest() {
 	ph.outgoingShutdown <- struct{}{}
 }
 
-// TODO: Move to MetricsRegistry
-func (ph *ProxyHandler) registerMetrics(cfg *config.LspwatchConfig) error {
+func (ph *ProxyHandler) enableMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {
-		err := ph.metricsRegistry.RegisterMetric(telemetry.RequestDuration)
+		err := ph.metricsRegistry.EnableMetric(telemetry.RequestDuration)
 		if err != nil {
 			return err
 		}
@@ -95,7 +85,7 @@ func (ph *ProxyHandler) registerMetrics(cfg *config.LspwatchConfig) error {
 	}
 
 	for _, metric := range *cfg.Metrics {
-		err := ph.metricsRegistry.RegisterMetric(telemetry.AvailableMetric(metric))
+		err := ph.metricsRegistry.EnableMetric(telemetry.AvailableMetric(metric))
 		if err != nil {
 			return err
 		}
@@ -300,6 +290,7 @@ func (ph *ProxyHandler) listenClient(serverInputPipe io.WriteCloser) {
 
 func NewProxyHandler(
 	exporter telemetry.MetricsExporter,
+	metricsRegistry telemetry.MetricsRegistry,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
 ) (*ProxyHandler, error) {
@@ -317,7 +308,7 @@ func NewProxyHandler(
 
 	rh := ProxyHandler{
 		meteredRequests:    meteredRequestsMap,
-		metricsRegistry:    telemetry.NewMetricsRegistry(exporter, availableLSPMetrics),
+		metricsRegistry:    metricsRegistry,
 		requestBuffer:      orderedmap.NewOrderedMap[string, RequestBookmark](),
 		outgoingShutdown:   make(chan struct{}),
 		incomingShutdown:   make(chan struct{}),
@@ -325,9 +316,9 @@ func NewProxyHandler(
 		listenersWaitGroup: &sync.WaitGroup{},
 	}
 
-	err := rh.registerMetrics(cfg)
+	err := rh.enableMetrics(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics: %v", err)
+		return nil, fmt.Errorf("error enabling metrics: %v", err)
 	}
 
 	return &rh, nil

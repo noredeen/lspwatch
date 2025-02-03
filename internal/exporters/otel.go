@@ -156,6 +156,39 @@ func (e *fileExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
+func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig) (*MetricsOTelExporter, error) {
+	// TODO: I don't think this works.
+	// logr := logrusr.New(logger)
+	// otel.SetLogger(logr)
+
+	var err error
+	var metricExporter sdkmetric.Exporter
+	switch cfg.Protocol {
+	case "http":
+		metricExporter, err = newOTLPMetricsHTTPExporter(cfg)
+	case "grpc":
+		metricExporter, err = newOTLPMetricsGRPCExporter(cfg)
+	case "file":
+		metricExporter, err = newFileExporter(cfg)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := newResource()
+	if err != nil {
+		return nil, err
+	}
+
+	return &MetricsOTelExporter{
+		resource:     *res,
+		otelExporter: metricExporter,
+		histograms:   make(map[string]metric.Float64Histogram),
+	}, nil
+}
+
 func newTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 	tlsCfg := tls.Config{}
 
@@ -300,37 +333,4 @@ func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Expo
 	}
 
 	return metricExporter, nil
-}
-
-// https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig) (*MetricsOTelExporter, error) {
-	// TODO: I don't think this works.
-	// logr := logrusr.New(logger)
-	// otel.SetLogger(logr)
-
-	var err error
-	var metricExporter sdkmetric.Exporter
-	switch cfg.Protocol {
-	case "http":
-		metricExporter, err = newOTLPMetricsHTTPExporter(cfg)
-	case "grpc":
-		metricExporter, err = newOTLPMetricsGRPCExporter(cfg)
-	case "file":
-		metricExporter, err = newFileExporter(cfg)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := newResource()
-	if err != nil {
-		return nil, err
-	}
-
-	return &MetricsOTelExporter{
-		resource:     *res,
-		otelExporter: metricExporter,
-		histograms:   make(map[string]metric.Float64Histogram),
-	}, nil
 }

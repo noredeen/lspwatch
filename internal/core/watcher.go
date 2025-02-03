@@ -12,46 +12,44 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type ProcessHandle interface {
+	Wait() (*os.ProcessState, error)
+}
+
+type ProcessInfo interface {
+	MemoryInfo() (*process.MemoryInfoStat, error)
+}
+
 type ProcessWatcher struct {
 	metricsRegistry   telemetry.MetricsRegistry
-	process           *os.Process
-	processExitedChan chan error
+	processHandle     ProcessHandle
+	processInfo       ProcessInfo
+	pollingInterval   time.Duration
 	processExited     bool
+	processExitedChan chan error
 	incomingShutdown  chan struct{}
 	logger            *logrus.Logger
 	mu                sync.Mutex
 	wg                *sync.WaitGroup
 }
 
-var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
-	telemetry.ServerRSS: {
-		Kind:        telemetry.Histogram,
-		Name:        "lspwatch.server.rss",
-		Description: "RSS of the language server process",
-		Unit:        "bytes", // TODO: Check if this is correct
-	},
-}
-
-func (pw *ProcessWatcher) Launch() error {
-	utilProc, err := process.NewProcess(int32(pw.process.Pid))
-	if err != nil {
-		return err
-	}
-
+func (pw *ProcessWatcher) Start() error {
 	// I'm ok with letting this goroutine run indefinitely (for now)
 	go func() {
 		// TODO: use the returned state value
-		_, err := pw.process.Wait()
-		pw.mu.Lock()
-		if pw.processExitedChan != nil {
-			pw.processExited = true
-			pw.processExitedChan <- err
-			pw.processExitedChan = nil
+		_, err := pw.processHandle.Wait()
+		if err != nil {
+			pw.logger.Errorf("error waiting for process to exit: %v", err)
 		}
+
+		pw.logger.Info("language server process exited")
+		pw.mu.Lock()
+		pw.processExited = true
+		pw.processExitedChan <- err
 		pw.mu.Unlock()
 	}()
 
-	ticker := time.NewTicker(4 * time.Second)
+	ticker := time.NewTicker(pw.pollingInterval)
 	pw.wg.Add(1)
 	go func() {
 		defer func() {
@@ -72,7 +70,7 @@ func (pw *ProcessWatcher) Launch() error {
 				pw.mu.Unlock()
 
 				if pw.metricsRegistry.IsMetricEnabled(telemetry.ServerRSS) {
-					memoryInfo, err := utilProc.MemoryInfo()
+					memoryInfo, err := pw.processInfo.MemoryInfo()
 					if err != nil {
 						pw.logger.Errorf("failed to get memory info: %v", err)
 						continue
@@ -93,6 +91,7 @@ func (pw *ProcessWatcher) Launch() error {
 		}
 	}()
 
+	pw.logger.Info("process watcher started")
 	return nil
 }
 
@@ -115,11 +114,10 @@ func (pw *ProcessWatcher) ProcessExited() chan error {
 	return pw.processExitedChan
 }
 
-// TODO: Move to MetricsRegistry
-func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
+func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {
-		err := pw.metricsRegistry.RegisterMetric(telemetry.ServerRSS)
+		err := pw.metricsRegistry.EnableMetric(telemetry.ServerRSS)
 		if err != nil {
 			return err
 		}
@@ -127,7 +125,7 @@ func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	}
 
 	for _, metric := range *cfg.Metrics {
-		err := pw.metricsRegistry.RegisterMetric(telemetry.AvailableMetric(metric))
+		err := pw.metricsRegistry.EnableMetric(telemetry.AvailableMetric(metric))
 		if err != nil {
 			return err
 		}
@@ -136,10 +134,23 @@ func (pw *ProcessWatcher) registerMetrics(cfg *config.LspwatchConfig) error {
 	return nil
 }
 
-func NewProcessWatcher(process *os.Process, exporter telemetry.MetricsExporter, cfg *config.LspwatchConfig, logger *logrus.Logger) (*ProcessWatcher, error) {
+func NewProcessWatcher(
+	processHandle ProcessHandle,
+	processInfo ProcessInfo,
+	metricsRegistry telemetry.MetricsRegistry,
+	cfg *config.LspwatchConfig,
+	logger *logrus.Logger,
+) (*ProcessWatcher, error) {
+	pollingInterval := 5 * time.Second
+	if cfg.PollingInterval != nil {
+		pollingInterval = time.Duration(*cfg.PollingInterval) * time.Second
+	}
+
 	pw := ProcessWatcher{
-		metricsRegistry:   telemetry.NewMetricsRegistry(exporter, availableServerMetrics),
-		process:           process,
+		processHandle:     processHandle,
+		processInfo:       processInfo,
+		metricsRegistry:   metricsRegistry,
+		pollingInterval:   pollingInterval,
 		processExitedChan: make(chan error),
 		incomingShutdown:  make(chan struct{}),
 		mu:                sync.Mutex{},
@@ -147,9 +158,9 @@ func NewProcessWatcher(process *os.Process, exporter telemetry.MetricsExporter, 
 		wg:                &sync.WaitGroup{},
 	}
 
-	err := pw.registerMetrics(cfg)
+	err := pw.enableMetrics(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("error registering metrics: %v", err)
+		return nil, fmt.Errorf("error enabling metrics: %v", err)
 	}
 
 	return &pw, nil

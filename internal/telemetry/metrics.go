@@ -4,8 +4,7 @@ import (
 	"fmt"
 )
 
-// TODO: I am not so sure about my decision to use async Shutdown().
-// I will probably undo this in a future PR.
+// TODO: I am not so sure about my decision to use async Start/Shutdown.
 type MetricsExporter interface {
 	RegisterMetric(registration MetricRegistration) error
 	EmitMetric(metric MetricRecording) error
@@ -13,11 +12,11 @@ type MetricsExporter interface {
 
 	// Must be idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 	Shutdown() error
-	// Asynchronously starts the exporter.
+	// Runs the exporter asynchronously.
 	Start() error
-	// Block until the exporter has shut down.
+	// Blocks until the exporter has flushed all held metrics and shut down.
 	Wait()
-	// Release any held resources like open log files.
+	// Frees any resources (should be called after Wait)
 	Release() error
 }
 
@@ -28,8 +27,8 @@ const (
 )
 
 const (
-	RequestDuration AvailableMetric = "lspwatch.request.duration"
-	ServerRSS       AvailableMetric = "lspwatch.server.rss"
+	RequestDuration AvailableMetric = "request.duration"
+	ServerRSS       AvailableMetric = "server.rss"
 )
 
 const (
@@ -45,10 +44,16 @@ type MetricKind int
 
 type TagValue string
 
-type MetricsRegistry struct {
-	available map[AvailableMetric]MetricRegistration
-	enabled   map[AvailableMetric]bool
-	exporter  MetricsExporter
+type MetricsRegistry interface {
+	EnableMetric(metric AvailableMetric) error
+	EmitMetric(metric MetricRecording) error
+	IsMetricEnabled(metric AvailableMetric) bool
+}
+
+type DefaultMetricsRegistry struct {
+	registered map[AvailableMetric]MetricRegistration
+	enabled    map[AvailableMetric]bool
+	exporter   MetricsExporter
 }
 
 type MetricRegistration struct {
@@ -70,10 +75,10 @@ type Tag struct {
 	Value TagValue
 }
 
-func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
-	registration, ok := mr.available[metric]
+func (mr *DefaultMetricsRegistry) EnableMetric(metric AvailableMetric) error {
+	registration, ok := mr.registered[metric]
 	if !ok {
-		return fmt.Errorf("metric %s is not supported", metric)
+		return fmt.Errorf("cannot enable the unregistered metric %s", metric)
 	}
 
 	err := mr.exporter.RegisterMetric(registration)
@@ -86,24 +91,33 @@ func (mr *MetricsRegistry) RegisterMetric(metric AvailableMetric) error {
 }
 
 // Skips emitting the metric if it's not enabled within the registry.
-func (mr *MetricsRegistry) EmitMetric(metric MetricRecording) error {
+// Helpful for reducing nesting from IsMetricEnabled() checks.
+func (mr *DefaultMetricsRegistry) EmitMetric(metric MetricRecording) error {
+	registration, ok := mr.registered[AvailableMetric(metric.Name)]
+	if !ok {
+		return fmt.Errorf("cannot emit the unregistered metric %s", metric.Name)
+	}
+
 	if !mr.enabled[AvailableMetric(metric.Name)] {
 		return nil
 	}
+
+	// Replace configuration name with export name.
+	metric.Name = registration.Name
 
 	return mr.exporter.EmitMetric(metric)
 }
 
 // Useful when producing the MetricRecording for EmitMetric() should be skipped.
-func (mr *MetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
+func (mr *DefaultMetricsRegistry) IsMetricEnabled(metric AvailableMetric) bool {
 	return mr.enabled[AvailableMetric(metric)]
 }
 
-func NewMetricsRegistry(exporter MetricsExporter, availableMetrics map[AvailableMetric]MetricRegistration) MetricsRegistry {
-	return MetricsRegistry{
-		available: availableMetrics,
-		enabled:   make(map[AvailableMetric]bool),
-		exporter:  exporter,
+func NewDefaultMetricsRegistry(exporter MetricsExporter, registeredMetrics map[AvailableMetric]MetricRegistration) DefaultMetricsRegistry {
+	return DefaultMetricsRegistry{
+		registered: registeredMetrics,
+		enabled:    make(map[AvailableMetric]bool),
+		exporter:   exporter,
 	}
 }
 
