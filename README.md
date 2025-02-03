@@ -1,10 +1,28 @@
-# `lspwatch`
+<div align="center">
+<h1>
+  <div class="image-wrapper" style="display: inline-block;">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" alt="logo" height="200" srcset="https://github.com/user-attachments/assets/8979515b-e38c-4b3c-adf4-bb0b2e5c8594" style="display: block; margin: auto;">
+      <source media="(prefers-color-scheme: light)" alt="logo" height="200" srcset="https://github.com/user-attachments/assets/c6cc34d5-44a5-4323-83b0-3ce45809499e" style="display: block; margin: auto;">
+      <img alt="Shows my svg">
+    </picture>
+  </div>
+</h1>
+</div>
 
-A configurable stdin/stdout proxy for the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/) with built-in observability integrations. `lspwatch` produces telemetry for the language server and its LSP request/response communication, and exports it to your observability backend.
+`lspwatch` is a configurable stdin/stdout proxy for the [Language Server Protocol (LSP)](https://microsoft.github.io/language-server-protocol/) with built-in observability integrations. `lspwatch` produces telemetry for the language server and its LSP request/response communication, and exports it to your observability backend.
 
-<div align="center"><img align="center" width="780" alt="Screenshot 2025-01-18 at 7 25 44 PM" src="https://github.com/user-attachments/assets/119e046f-8c09-41ea-81db-ff45e9ec8d27" /></div>
-
-<br/>
+<div align="center">
+<h1>
+  <div class="image-wrapper" style="display: inline-block;">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" width="1060" srcset="https://github.com/user-attachments/assets/309e5c83-4ee7-442b-91a6-b975ba5e2035" style="display: block; margin: auto;">
+      <source media="(prefers-color-scheme: light)" width="1060" srcset="https://github.com/user-attachments/assets/dad55082-4dc9-4809-8fa0-7a8a9609b25f" style="display: block; margin: auto;">
+      <img alt="Shows my svg">
+    </picture>
+  </div>
+</h1>
+</div>
 
 `lspwatch` can calculate and export:
 
@@ -18,7 +36,8 @@ A configurable stdin/stdout proxy for the [Language Server Protocol (LSP)](https
 
 Users can optionally choose to tag metrics with:
 
-* `language_server`: name of language server binary (e.g `clangd`).
+* `language_server`: name of language server.
+r binary (e.g `clangd`).
 * `user`: username on the machine.
 * `os`: operating system.
 * `ram`: total amount of RAM on the machine.
