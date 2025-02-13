@@ -36,7 +36,7 @@ clean:
 .PHONY: deps
 deps:
 	@echo "Downloading dependencies..."
-	$(GO) mod download
+	go mod download
 
 .PHONY: help
 help:
