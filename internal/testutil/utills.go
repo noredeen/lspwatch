@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func AssertExitsAfter(t *testing.T, fn func(), timeout time.Duration) {
+func AssertExitsAfter(t *testing.T, desc string, fn func(), timeout time.Duration) bool {
 	done := make(chan bool)
 	go func() {
 		fn()
@@ -16,6 +16,9 @@ func AssertExitsAfter(t *testing.T, fn func(), timeout time.Duration) {
 	case <-done:
 		break
 	case <-time.After(timeout):
-		t.Errorf("expected exit after %s", timeout)
+		t.Errorf("(%s) expected to terminate after %s", desc, timeout)
+		return false
 	}
+
+	return true
 }

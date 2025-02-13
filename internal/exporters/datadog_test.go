@@ -243,7 +243,11 @@ func TestDefaultMetricsProcessor_processBatch(t *testing.T) {
 	wg.Add(1)
 	processor.processBatch(batch, &wg, logger)
 	// This only checks that wg.Done() is called. Will be removed soon in favor of a context.
-	testutil.AssertExitsAfter(t, func() { wg.Wait() }, 100*time.Millisecond)
+	testutil.AssertExitsAfter(
+		t, "waiting for process batch to finish",
+		func() { wg.Wait() },
+		100*time.Millisecond,
+	)
 
 	client := processor.metricsApiClient.(*mockMetricsApi)
 	if !client.submitMetricsCalled {
@@ -275,7 +279,11 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 			t.Fatalf("expected Shutdown not to return an error, got %v", err)
 		}
 
-		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(
+			t, "waiting for metrics exporter shutdown",
+			func() { metricsExporter.Wait() },
+			1*time.Second,
+		)
 	})
 
 	t.Run("shutdown when already running", func(t *testing.T) {
@@ -292,7 +300,11 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 			t.Fatalf("expected Shutdown not to return an error, got %v", err)
 		}
 
-		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 3*time.Second)
+		testutil.AssertExitsAfter(
+			t, "waiting for metrics exporter shutdown",
+			func() { metricsExporter.Wait() },
+			3*time.Second,
+		)
 	})
 
 	t.Run("double shutdown when already running", func(t *testing.T) {
@@ -313,7 +325,11 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 			t.Fatalf("expected second Shutdown not to return an error, got %v", err)
 		}
 
-		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(
+			t, "waiting for metrics exporter shutdown",
+			func() { metricsExporter.Wait() },
+			1*time.Second,
+		)
 	})
 }
 
@@ -382,7 +398,11 @@ func TestDatadogMetricsExporter(t *testing.T) {
 		}
 
 		metricsExporter.Shutdown()
-		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(
+			t, "waiting for metrics exporter shutdown",
+			func() { metricsExporter.Wait() },
+			1*time.Second,
+		)
 	})
 
 	t.Run("timeout before full batch", func(t *testing.T) {
@@ -450,7 +470,11 @@ func TestDatadogMetricsExporter(t *testing.T) {
 		}
 
 		metricsExporter.Shutdown()
-		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(
+			t, "waiting for metrics exporter shutdown",
+			func() { metricsExporter.Wait() },
+			1*time.Second,
+		)
 	})
 
 	t.Run("shutdown before timeout or full batch", func(t *testing.T) {
@@ -519,7 +543,11 @@ func TestDatadogMetricsExporter(t *testing.T) {
 			}
 		}
 
-		testutil.AssertExitsAfter(t, func() { metricsExporter.Wait() }, 1*time.Second)
+		testutil.AssertExitsAfter(
+			t, "waiting for metrics exporter shutdown",
+			func() { metricsExporter.Wait() },
+			1*time.Second,
+		)
 	})
 }
 
