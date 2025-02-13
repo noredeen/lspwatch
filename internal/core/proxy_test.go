@@ -104,6 +104,11 @@ func TestProxyHandler(t *testing.T) {
 			logger := logrus.New()
 			logger.SetOutput(os.Stdout)
 			proxyHandler, proxyToClient, proxyToServer, clientToProxy, serverToProxy := setUpTest(t, &metricsRegistry, logger)
+			defer proxyToClient.Close()
+			defer proxyToServer.Close()
+			defer clientToProxy.Close()
+			defer serverToProxy.Close()
+
 			proxyHandler.Start()
 
 			var msgFromClient string
@@ -129,6 +134,9 @@ func TestProxyHandler(t *testing.T) {
 
 			msgFromServer = "Content-Length: 41\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": []}"
 			sendMessageAndAssert(t, "<- | textDocument/references response", serverToProxy, proxyToClient, msgFromServer)
+
+			proxyHandler.Shutdown()
+			testutil.AssertExitsAfter(t, "proxy handler shutdown", func() { proxyHandler.Start() }, 200*time.Millisecond)
 		})
 
 		// - (server/client) bad json
@@ -150,7 +158,7 @@ func TestProxyHandler(t *testing.T) {
 	})
 
 	// (can tell from computed duration and tags)
-	t.Run("emits metrics by correctly matches request with response", func(t *testing.T) {
+	t.Run("emits metrics by correctly matching request with response", func(t *testing.T) {
 		t.Parallel()
 	})
 }
