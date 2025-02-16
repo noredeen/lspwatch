@@ -164,7 +164,7 @@ func TestProcessWatcher(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no errors shutting down process watcher, got '%v'", err)
 		}
-		testutil.AssertExitsAfter(
+		testutil.AssertExitsBefore(
 			t, "waiting for process watcher shutdown",
 			func() { processWatcher.Wait() },
 			1*time.Second,
@@ -194,7 +194,7 @@ func TestProcessWatcher(t *testing.T) {
 		metricsRegistry.mu.Lock()
 		initialEmitCount := len(metricsRegistry.emitMetricCalls)
 		metricsRegistry.mu.Unlock()
-		testutil.AssertExitsAfter(
+		testutil.AssertExitsBefore(
 			t, "waiting for process watcher exit notification",
 			func() { <-processWatcher.ProcessExited() },
 			100*time.Millisecond,
@@ -214,7 +214,7 @@ func TestProcessWatcher(t *testing.T) {
 			t.Fatalf("expected no errors shutting down process watcher, got '%v'", err)
 		}
 
-		testutil.AssertExitsAfter(
+		testutil.AssertExitsBefore(
 			t, "waiting for process watcher shutdown",
 			func() { processWatcher.Wait() },
 			500*time.Millisecond,

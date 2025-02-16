@@ -16,10 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type nopWriteCloser struct {
-	io.Writer
-}
-
 type mockProxyMetricsRegistry struct {
 	enableMetricCalls []telemetry.AvailableMetric
 	emitMetricCalls   []telemetry.MetricRecording
@@ -27,8 +23,6 @@ type mockProxyMetricsRegistry struct {
 }
 
 var _ telemetry.MetricsRegistry = &mockProxyMetricsRegistry{}
-
-func (nopWriteCloser) Close() error { return nil }
 
 func (m *mockProxyMetricsRegistry) EnableMetric(metric telemetry.AvailableMetric) error {
 	m.enableMetricCalls = append(m.enableMetricCalls, metric)
@@ -93,26 +87,26 @@ func TestNewProxyHandler(t *testing.T) {
 }
 
 func TestProxyHandler(t *testing.T) {
-	t.Run("proxying works", func(t *testing.T) {
-		// - (server) received server-originated message
-		// - (server) received response for unbuffered request
-		// - (client) received non-request message
-		// - (client) duplicate request ID in the buffer
+	t.Run("basic proxying works", func(t *testing.T) {
 		t.Run("for any kind of correctly-formed LSP message (except exit)", func(t *testing.T) {
 			t.Parallel()
 			metricsRegistry := mockProxyMetricsRegistry{}
 			logger := logrus.New()
-			logger.SetOutput(os.Stdout)
+			logger.SetOutput(io.Discard)
 			proxyHandler, proxyToClient, proxyToServer, clientToProxy, serverToProxy := setUpTest(t, &metricsRegistry, logger)
-			defer proxyToClient.Close()
-			defer proxyToServer.Close()
-			defer clientToProxy.Close()
-			defer serverToProxy.Close()
+			t.Cleanup(func() {
+				proxyToClient.Close()
+				proxyToServer.Close()
+				clientToProxy.Close()
+				serverToProxy.Close()
+			})
 
 			proxyHandler.Start()
+			time.Sleep(50 * time.Millisecond)
 
 			var msgFromClient string
 			var msgFromServer string
+			var err error
 
 			msgFromClient = "Content-Length: 71\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"initialize\", \"params\": {\"processId\": 22}}"
 			sendMessageAndAssert(t, "-> | initialize request", clientToProxy, proxyToServer, msgFromClient)
@@ -124,7 +118,7 @@ func TestProxyHandler(t *testing.T) {
 			sendMessageAndAssert(t, "-> | initialized request", clientToProxy, proxyToServer, msgFromClient)
 
 			msgFromServer = "Content-Length: 181\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"client/registerCapability\", \"params\": {\"registrations\": [{\"id\": \"1\", \"method\": \"$/cancelRequest\", \"registerOptions\": {\"idempotent\": true}}], \"id\": 22}}"
-			sendMessageAndAssert(t, "<- | register capabilities request", serverToProxy, proxyToClient, msgFromServer)
+			sendMessageAndAssert(t, "<- | register capabilities request", clientToProxy, proxyToServer, msgFromServer)
 
 			msgFromClient = "Content-Length: 42\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 22, \"result\": \"\"}"
 			sendMessageAndAssert(t, "-> | register capabilities response", clientToProxy, proxyToServer, msgFromClient)
@@ -132,32 +126,122 @@ func TestProxyHandler(t *testing.T) {
 			msgFromClient = "Content-Length: 128\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"textDocument/references\", \"params\": {\"textDocument\": {\"uri\": \"file:///path/to/file.ts\"}}}"
 			sendMessageAndAssert(t, "-> | textDocument/references request", clientToProxy, proxyToServer, msgFromClient)
 
+			msgFromClient = "Content-Length: 128\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"textDocument/references\", \"params\": {\"textDocument\": {\"uri\": \"file:///path/to/file.ts\"}}}"
+			sendMessageAndAssert(t, "-> | DUPLICATE textDocument/references request", clientToProxy, proxyToServer, msgFromClient)
+
 			msgFromServer = "Content-Length: 41\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": []}"
 			sendMessageAndAssert(t, "<- | textDocument/references response", serverToProxy, proxyToClient, msgFromServer)
 
-			proxyHandler.Shutdown()
-			testutil.AssertExitsAfter(t, "proxy handler shutdown", func() { proxyHandler.Start() }, 200*time.Millisecond)
+			msgFromServer = "Content-Length: 43\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 563, \"result\": []}"
+			sendMessageAndAssert(t, "<- | response for unbuffered request", serverToProxy, proxyToClient, msgFromServer)
+
+			err = proxyHandler.Shutdown()
+			if err != nil {
+				t.Fatalf("expected no error shutting down proxy handler, got '%v'", err)
+			}
+
+			testutil.AssertExitsBefore(t, "wait for proxy handler to shut down",
+				func() {
+					proxyHandler.Wait()
+				},
+				6*time.Second,
+			)
 		})
 
-		// - (server/client) bad json
+		// TODO
 		t.Run("for incorrectly-formed messages", func(t *testing.T) {
 			t.Parallel()
 		})
 
+		// TODO
 		t.Run("when EmitMetric calls return errors", func(t *testing.T) {
 			t.Parallel()
 		})
 	})
 
-	t.Run("an exit message from the client is intercepted (no proxying)", func(t *testing.T) {
-		t.Parallel()
+	t.Run("language server shutdown process is correctly handled", func(t *testing.T) {
+		t.Run("an exit message from the client is intercepted and raised to caller", func(t *testing.T) {
+			t.Parallel()
+			metricsRegistry := mockProxyMetricsRegistry{}
+			logger := logrus.New()
+			logger.SetOutput(os.Stdout)
+			proxyHandler, proxyToClient, proxyToServer, clientToProxy, serverToProxy := setUpTest(t, &metricsRegistry, logger)
+			t.Cleanup(func() {
+				proxyToClient.Close()
+				proxyToServer.Close()
+				clientToProxy.Close()
+				serverToProxy.Close()
+			})
+
+			proxyHandler.Start()
+
+			msgFromClient := "Content-Length: 36\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"exit\"}"
+			msgReader := strings.NewReader(msgFromClient)
+			msgReader.WriteTo(clientToProxy)
+			buf := make([]byte, len(msgFromClient)+100)
+
+			// Read should block.
+			testutil.AssertDoesNotExitBefore(
+				t, "reading data sent from proxy to server",
+				func() { proxyToServer.Read(buf) }, 2*time.Second,
+			)
+
+			// Must raise to caller.
+			testutil.AssertExitsBefore(
+				t, "proxy handler shutdown",
+				func() { <-proxyHandler.ShutdownRequested() },
+				200*time.Millisecond,
+			)
+
+			t.Cleanup(func() {
+				err := proxyHandler.Shutdown()
+				if err != nil {
+					t.Fatalf("expected no error shutting down proxy handler, got '%v'", err)
+				}
+				proxyHandler.Wait()
+			})
+		})
+
+		t.Run("a shutdown instruction from the caller causes exit LSP request to propagate to the server", func(t *testing.T) {
+			t.Parallel()
+			metricsRegistry := mockProxyMetricsRegistry{}
+			logger := logrus.New()
+			logger.SetOutput(os.Stdout)
+			proxyHandler, proxyToClient, proxyToServer, clientToProxy, serverToProxy := setUpTest(t, &metricsRegistry, logger)
+			t.Cleanup(func() {
+				proxyToClient.Close()
+				proxyToServer.Close()
+				clientToProxy.Close()
+				serverToProxy.Close()
+			})
+
+			proxyHandler.Start()
+
+			msgFromClient := "Content-Length: 36\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"exit\"}"
+			msgReader := strings.NewReader(msgFromClient)
+			msgReader.WriteTo(clientToProxy)
+
+			// There should be no need for the caller to monitor the shutdown channel.
+			time.Sleep(200 * time.Millisecond)
+
+			err := proxyHandler.Shutdown()
+			if err != nil {
+				t.Fatalf("expected no error shutting down proxy handler, got '%v'", err)
+			}
+
+			buf := make([]byte, len(msgFromClient)+100)
+			testutil.AssertExitsBefore(
+				t, "propagate exit message to server",
+				func() { proxyToServer.Read(buf) },
+				300*time.Millisecond,
+			)
+			if !bytes.Contains(buf, []byte(msgFromClient)) {
+				t.Errorf("expected exit message to get proxied, but got '%s'", string(buf))
+			}
+		})
 	})
 
-	t.Run("a shutdown instruction causes the exit LSP request to propagate to the server", func(t *testing.T) {
-		t.Parallel()
-	})
-
-	// (can tell from computed duration and tags)
+	// TODO: (can tell from computed duration and tags)
 	t.Run("emits metrics by correctly matching request with response", func(t *testing.T) {
 		t.Parallel()
 	})
@@ -172,30 +256,26 @@ func setUpTest(t *testing.T, metricsRegistry *mockProxyMetricsRegistry, logger *
 	// clientToProxy is for me to send message as the client to the proxy
 	// clientInput is for the proxy to read what I send it as the client
 	clientIn, clientToProxy := io.Pipe()
-	clientInput := io.NopCloser(clientIn)
 
 	// serverToProxy is for me to send message as the server to the proxy
 	// serverInput is for the proxy to read what I send it as the server
 	serverIn, serverToProxy := io.Pipe()
-	serverInput := io.NopCloser(serverIn)
 
 	// proxyToClient is for me to read what the proxy sends to the client
 	// clientOutput is for the proxy to write stuff to me as the client
 	proxyToClient, clientOut := io.Pipe()
-	clientOutput := nopWriteCloser{clientOut}
 
 	// proxyToServer is for me to read what the proxy sends to the server
 	// serverOutput is for the proxy to write stuff to me as the server
 	proxyToServer, serverOut := io.Pipe()
-	serverOutput := nopWriteCloser{serverOut}
 
 	proxyHandler, err := NewProxyHandler(
 		&config.LspwatchConfig{},
 		metricsRegistry,
-		clientInput,
-		clientOutput,
-		serverInput,
-		serverOutput,
+		clientIn,
+		clientOut,
+		serverIn,
+		serverOut,
 		logger,
 	)
 	if err != nil {
@@ -210,7 +290,7 @@ func sendMessageAndAssert(t *testing.T, description string, origin *io.PipeWrite
 	msgReader := strings.NewReader(msg)
 	msgReader.WriteTo(origin)
 	buf := make([]byte, len(msg)+100)
-	ok := testutil.AssertExitsAfter(
+	ok := testutil.AssertExitsBefore(
 		t,
 		fmt.Sprintf("%s -- reading from destination", description),
 		func() { destination.Read(buf) },

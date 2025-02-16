@@ -37,7 +37,7 @@ type LSPServerMessage struct {
 // io.Reader implementation that captures the first complete MIME header
 // within the buffer.
 type HeaderCaptureReader struct {
-	reader  io.Reader
+	reader  io.ReadCloser
 	buffer  bytes.Buffer
 	reading bool
 }
@@ -103,22 +103,26 @@ func (hcr *HeaderCaptureReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+func (hcr *HeaderCaptureReader) Close() error {
+	return hcr.reader.Close()
+}
+
 // Returns the bytes captured by the reader through the end of the first MIME header.
 func (hcr *HeaderCaptureReader) CapturedBytes() []byte {
 	return hcr.buffer.Bytes()
 }
 
-func NewHeaderCaptureReader(reader io.Reader) *HeaderCaptureReader {
+func NewHeaderCaptureReader(reader io.ReadCloser) *HeaderCaptureReader {
 	return &HeaderCaptureReader{reader: reader, reading: true}
 }
 
-// TODO: There's a weird bug where the textproto reader
+// TODO: There's an odd bug where the textproto reader
 // sees a JSON body immediately followed by a Content-Length
 // header (which doesn't match the length of the body). Happens
-// very infrequently and hard to repro.
+// very infrequently and hard to reproduce.
 
 func ReadLSPMessage(
-	reader io.Reader,
+	reader io.ReadCloser,
 	jsonBody interface{},
 ) LSPReadResult {
 	// NOTE: Passing an io.TeeReader into a bufio.Reader will not work here

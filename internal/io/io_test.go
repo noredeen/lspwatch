@@ -2,6 +2,7 @@ package io
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -55,7 +56,7 @@ func TestHeaderCaptureReader(t *testing.T) {
 	t.Run("complete header one Read()", func(t *testing.T) {
 		t.Parallel()
 		headers := "Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n"
-		reader := strings.NewReader(headers + "{\"foo\": \"bar\"}")
+		reader := io.NopCloser(strings.NewReader(headers + "{\"foo\": \"bar\"}"))
 		headerCaptureReader := NewHeaderCaptureReader(reader)
 		buffer := make([]byte, 1024)
 		headerCaptureReader.Read(buffer)
@@ -72,7 +73,7 @@ func TestHeaderCaptureReader(t *testing.T) {
 	t.Run("complete header multiple Read()s", func(t *testing.T) {
 		t.Parallel()
 		headers := "Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n"
-		reader := strings.NewReader(headers)
+		reader := io.NopCloser(strings.NewReader(headers))
 		headerCaptureReader := NewHeaderCaptureReader(reader)
 		buffer1 := make([]byte, 3)
 		buffer2 := make([]byte, 100)
@@ -87,7 +88,7 @@ func TestHeaderCaptureReader(t *testing.T) {
 	t.Run("partial header", func(t *testing.T) {
 		t.Parallel()
 		headers := "Content-Length: 133\r\nSome-Header: Some-"
-		reader := strings.NewReader(headers)
+		reader := io.NopCloser(strings.NewReader(headers))
 		headerCaptureReader := NewHeaderCaptureReader(reader)
 		buffer := make([]byte, 500)
 		headerCaptureReader.Read(buffer)
@@ -107,7 +108,7 @@ func TestReadLSPMessage(t *testing.T) {
 		t.Parallel()
 
 		correctInput := "Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
-		reader := strings.NewReader(correctInput)
+		reader := io.NopCloser(strings.NewReader(correctInput))
 
 		var body LSPClientMessage
 		res := ReadLSPMessage(reader, &body)
@@ -143,7 +144,7 @@ func TestReadLSPMessage(t *testing.T) {
 		t.Parallel()
 
 		missingContentLengthInput := "\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
-		reader := strings.NewReader(missingContentLengthInput)
+		reader := io.NopCloser(strings.NewReader(missingContentLengthInput))
 
 		var body LSPClientMessage
 		res := ReadLSPMessage(reader, &body)
