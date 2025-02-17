@@ -289,7 +289,7 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 	t.Run("shutdown when already running", func(t *testing.T) {
 		t.Parallel()
 		metricsExporter := createMetricsExporter(t, batchSize, batchTimeout)
-		metricsExporter.logger.SetOutput(os.Stdout)
+		metricsExporter.logger.SetOutput(io.Discard)
 		err := metricsExporter.Start()
 		if err != nil {
 			t.Fatalf("expected Start not to return an error, got %v", err)

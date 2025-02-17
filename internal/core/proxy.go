@@ -184,7 +184,7 @@ func (ph *ProxyHandler) listenServer() {
 					}
 				} else {
 					ph.logger.Errorf("error parsing message from language server: %v", result.Err)
-					break
+					continue
 				}
 
 				// Forward message
@@ -283,11 +283,11 @@ func (ph *ProxyHandler) listenClient() {
 						shutdownMessage = readResult.RawBody
 						ph.raiseShutdownRequest()
 						// Skip forwarding the shutdown message
-						break
+						continue
 					}
 				} else {
 					ph.logger.Errorf("error reading message from client: %v", readResult.Err)
-					break
+					continue
 				}
 
 				// Forward message
