@@ -1,0 +1,11 @@
+exporter: opentelemetry
+tags:
+  - os
+  - language_server
+  - ram
+  - user
+opentelemetry:
+  protocol: grpc
+  metrics_endpoint_url: http://localhost:4317/v1/metrics
+  tls:
+    insecure: true

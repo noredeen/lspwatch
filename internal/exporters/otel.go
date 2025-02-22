@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/noredeen/lspwatch/internal/config"
+	"github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
+	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -28,17 +30,15 @@ const (
 )
 
 type MetricsOTelExporter struct {
-	otelExporter  sdkmetric.Exporter
-	resource      resource.Resource
-	meterProvider *sdkmetric.MeterProvider
-	meter         metric.Meter
-	histograms    map[string]metric.Float64Histogram
-	globalTags    []telemetry.Tag
-	shutdownCtx   context.Context
+	otelExporter        sdkmetric.Exporter
+	resource            resource.Resource
+	metricRegistrations []telemetry.MetricRegistration
+	meterProvider       *sdkmetric.MeterProvider
+	meter               metric.Meter
+	histograms          map[string]metric.Float64Histogram
+	globalTags          []telemetry.Tag
+	shutdownCtx         context.Context
 }
-
-var _ telemetry.MetricsExporter = &MetricsOTelExporter{}
-var _ sdkmetric.Exporter = &fileExporter{}
 
 // Why not the stdoutmetric exporter from otel/exporters?
 //
@@ -51,21 +51,24 @@ type fileExporter struct {
 	file *os.File
 }
 
+// Create a wrapper exporter that logs errors
+type loggingExporter struct {
+	logger  *logrus.Logger
+	wrapped sdkmetric.Exporter
+}
+
+var _ telemetry.MetricsExporter = &MetricsOTelExporter{}
+var _ sdkmetric.Exporter = &fileExporter{}
+var _ sdkmetric.Exporter = &loggingExporter{}
+
+// This method does not actually "register" the metric when called.
+// It just stores the registration for later use. For some reason,
+// in the OTel SDK you can only create instruments (e.g histogram recorders)
+// after the exporter has "started". We should perhaps rework the
+// metrics registry/exporter inteface to better suit this reality, but
+// for now we will defer registration to the Start() method.
 func (ome *MetricsOTelExporter) RegisterMetric(registration telemetry.MetricRegistration) error {
-	switch registration.Kind {
-	case telemetry.Histogram:
-		hist, err := ome.meter.Float64Histogram(
-			registration.Name,
-			metric.WithDescription(registration.Description),
-			metric.WithUnit(registration.Unit),
-		)
-		if err != nil {
-			return err
-		}
-
-		ome.histograms[registration.Name] = hist
-	}
-
+	ome.metricRegistrations = append(ome.metricRegistrations, registration)
 	return nil
 }
 
@@ -96,6 +99,12 @@ func (ome *MetricsOTelExporter) Start() error {
 	meter := meterProvider.Meter("lspwatch")
 	ome.meterProvider = meterProvider
 	ome.meter = meter
+
+	err := ome.createInstrumentsFromRegistrations()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -117,6 +126,27 @@ func (ome *MetricsOTelExporter) Release() error {
 
 func (ome *MetricsOTelExporter) SetGlobalTags(tags ...telemetry.Tag) {
 	ome.globalTags = tags
+}
+
+// Refer to RegisterMetric() for more details.
+func (ome *MetricsOTelExporter) createInstrumentsFromRegistrations() error {
+	for _, registration := range ome.metricRegistrations {
+		switch registration.Kind {
+		case telemetry.Histogram:
+			hist, err := ome.meter.Float64Histogram(
+				registration.Name,
+				metric.WithDescription(registration.Description),
+				metric.WithUnit(registration.Unit),
+			)
+			if err != nil {
+				return err
+			}
+
+			ome.histograms[registration.Name] = hist
+		}
+	}
+
+	return nil
 }
 
 // TODO: Honor the context?
@@ -156,12 +186,37 @@ func (e *fileExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig) (*MetricsOTelExporter, error) {
-	// TODO: I don't think this works.
-	// logr := logrusr.New(logger)
-	// otel.SetLogger(logr)
+// I can't seem to figure out how to get the OTel library code to log
+// errors or show any indication of what it's doing. So one solution
+// is to wrap the exporter with a logger.
+func (e *loggingExporter) Export(ctx context.Context, data *metricdata.ResourceMetrics) error {
+	e.logger.Infof("[OTel] Exporting %d scope metrics", len(data.ScopeMetrics))
+	if err := e.wrapped.Export(ctx, data); err != nil {
+		e.logger.Errorf("[OTel] Failed to export metrics: %v", err)
+		return err
+	}
+	return nil
+}
 
+// Implement other required interface methods by delegating to wrapped exporter
+func (e *loggingExporter) Temporality(k sdkmetric.InstrumentKind) metricdata.Temporality {
+	return e.wrapped.Temporality(k)
+}
+
+func (e *loggingExporter) Aggregation(k sdkmetric.InstrumentKind) sdkmetric.Aggregation {
+	return e.wrapped.Aggregation(k)
+}
+
+func (e *loggingExporter) ForceFlush(ctx context.Context) error {
+	return e.wrapped.ForceFlush(ctx)
+}
+
+func (e *loggingExporter) Shutdown(ctx context.Context) error {
+	return e.wrapped.Shutdown(ctx)
+}
+
+// https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
+func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, enableLogging bool) (*MetricsOTelExporter, error) {
 	var err error
 	var metricExporter sdkmetric.Exporter
 	switch cfg.Protocol {
@@ -182,9 +237,14 @@ func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig) (*MetricsOTelExport
 		return nil, err
 	}
 
+	logger, _, err := io.CreateLogger("otel.log", enableLogging)
+	if err != nil {
+		return nil, fmt.Errorf("error creating otel logger: %v", err)
+	}
+
 	return &MetricsOTelExporter{
 		resource:     *res,
-		otelExporter: metricExporter,
+		otelExporter: &loggingExporter{wrapped: metricExporter, logger: logger},
 		histograms:   make(map[string]metric.Float64Histogram),
 	}, nil
 }
@@ -243,13 +303,14 @@ func newResource() (*resource.Resource, error) {
 	)
 }
 
+// TODO: Make the interval configurable
 func newOTelMeterProvider(exporter sdkmetric.Exporter, res *resource.Resource) *sdkmetric.MeterProvider {
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
 		sdkmetric.WithReader(
 			sdkmetric.NewPeriodicReader(
 				exporter,
-				sdkmetric.WithInterval(30*time.Second),
+				sdkmetric.WithInterval(2*time.Second),
 			),
 		),
 	)

@@ -294,6 +294,7 @@ func NewLspwatchInstance(
 	}, nil
 }
 
+// TODO: Test
 func getTagValues(
 	cfg *config.LspwatchConfig,
 	tagGetters map[telemetry.AvailableTag]func() telemetry.TagValue,
@@ -348,6 +349,7 @@ func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	}()
 }
 
+// TODO: Test
 func newMetricsExporter(
 	cfg config.LspwatchConfig,
 	enableLogging bool,
@@ -356,7 +358,7 @@ func newMetricsExporter(
 
 	switch cfg.Exporter {
 	case "opentelemetry":
-		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry)
+		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry, enableLogging)
 		if err != nil {
 			return nil, fmt.Errorf("error creating OpenTelemetry exporter: %v", err)
 		}

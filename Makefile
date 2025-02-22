@@ -38,6 +38,39 @@ deps:
 	@echo "Downloading dependencies..."
 	go mod download
 
+.PHONY: start-otel-collector
+start-otel-collector:
+	@echo "Starting OpenTelemetry Collector..."
+	rm -rf /tmp/file-exporter
+	mkdir -m 777 /tmp/file-exporter
+	@container_id=$$(docker run -d -p 4317:4317 -v /tmp/file-exporter:/file-exporter -v ./integration/otel_config.yaml:/etc/otelcol-contrib/config.yaml otel/opentelemetry-collector-contrib ) && \
+	echo "$$container_id" > /tmp/$(APP_NAME)-test-container-id && \
+	echo "Container started with ID: $$container_id"
+
+.PHONY: build-integration-runnables
+build-integration-runnables:
+	@echo "Building integration runnables..."
+	rm -rf ./integration/$(BUILD_DIR)
+	go build -o ./integration/$(BUILD_DIR)/ ./integration/cmd/*.go
+
+.PHONY: set-up-test-dependencies
+set-up-test-dependencies: build build-integration-runnables start-otel-collector 
+
+.PHONY: stop-otel-collector
+stop-otel-collector:
+	@echo "Stopping OpenTelemetry Collector..."
+	docker container stop $$(cat /tmp/$(APP_NAME)-test-container-id)
+	rm -f /tmp/$(APP_NAME)-test-container-id
+	rm -rf /tmp/file-exporter
+
+.PHONY: tear-down-test-dependencies
+tear-down-test-dependencies: stop-otel-collector clean
+
+.PHONY: integration-tests
+integration-tests:
+	@echo "Running integration tests..."
+	cd integration && go test -v
+
 .PHONY: help
 help:
 	@echo "Available targets:"

@@ -68,6 +68,7 @@ func (ph *ProxyHandler) Start() {
 	ph.listenersWaitGroup.Add(2)
 	go ph.listenServer()
 	go ph.listenClient()
+	ph.logger.Info("proxy listeners started")
 }
 
 func (ph *ProxyHandler) raiseShutdownRequest() {
@@ -120,13 +121,14 @@ func (ph *ProxyHandler) listenServer() {
 		ph.logger.Info("server listener shutdown complete")
 	}()
 
+	messageReader := lspwatch_io.NewLSPMessageReader(ph.inputFromServer)
 	serverReadResultChan := make(chan ServerReadResult)
 	go func(ctx context.Context) {
 		defer internalWg.Done()
 
 		for {
 			var serverMessage lspwatch_io.LSPServerMessage
-			result := lspwatch_io.ReadLSPMessage(ph.inputFromServer, &serverMessage)
+			result := messageReader.ReadLSPMessage(&serverMessage)
 			res := ServerReadResult{
 				serverMessage: serverMessage,
 				result:        &result,
@@ -169,6 +171,7 @@ func (ph *ProxyHandler) listenServer() {
 										duration.Seconds(),
 										telemetry.NewTag("method", telemetry.TagValue(requestBookmark.Method)),
 									)
+									ph.logger.Infof("emitting metric '%s'", requestDurationMetric.Name)
 									err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
 									if err != nil {
 										ph.logger.Errorf("error emitting metric: %v", err)
@@ -177,7 +180,7 @@ func (ph *ProxyHandler) listenServer() {
 							}
 						} else {
 							ph.logger.Infof(
-								"received response for unbuffered request with ID=%v",
+								"recieved client response for unbuffered request with ID=%v",
 								serverMessage.Id.Value,
 							)
 						}
@@ -223,13 +226,14 @@ func (ph *ProxyHandler) listenClient() {
 		ph.logger.Info("client listener shutdown complete")
 	}()
 
+	messageReader := lspwatch_io.NewLSPMessageReader(ph.inputFromClient)
 	clientReadResultChan := make(chan ClientReadResult)
 	go func(ctx context.Context) {
 		defer internalWg.Done()
 
 		for {
 			var clientMessage lspwatch_io.LSPClientMessage
-			result := lspwatch_io.ReadLSPMessage(ph.inputFromClient, &clientMessage)
+			result := messageReader.ReadLSPMessage(&clientMessage)
 			message := ClientReadResult{
 				clientMessage: clientMessage,
 				readResult:    &result,
@@ -279,7 +283,7 @@ func (ph *ProxyHandler) listenClient() {
 							)
 						}
 					} else if clientMessage.Method != nil && *clientMessage.Method == "exit" {
-						ph.logger.Info("received exit request from client")
+						ph.logger.Info("recieved exit request from client")
 						shutdownMessage = readResult.RawBody
 						ph.raiseShutdownRequest()
 						// Skip forwarding the shutdown message

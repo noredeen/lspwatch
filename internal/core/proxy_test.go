@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -349,10 +348,9 @@ func TestProxyHandler(t *testing.T) {
 
 	t.Run("emits metrics by correctly matching request with response", func(t *testing.T) {
 		t.Parallel()
-		file, _ := os.OpenFile("proxy_test.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		metricsRegistry := mockProxyMetricsRegistry{}
 		logger := logrus.New()
-		logger.SetOutput(file)
+		logger.SetOutput(io.Discard)
 		proxyHandler, proxyToClient, proxyToServer, clientToProxy, serverToProxy := setUpTest(t, &metricsRegistry, logger)
 		t.Cleanup(func() {
 			err := proxyHandler.Shutdown()

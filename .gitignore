@@ -12,3 +12,4 @@ main
 *.env
 lspwatch_metrics.json
 go.work
+**/build/
