@@ -38,6 +38,7 @@ type MetricsOTelExporter struct {
 	histograms          map[string]metric.Float64Histogram
 	globalTags          []telemetry.Tag
 	shutdownCtx         context.Context
+	shutdownCancel      context.CancelFunc
 }
 
 // Why not the stdoutmetric exporter from otel/exporters?
@@ -110,14 +111,16 @@ func (ome *MetricsOTelExporter) Start() error {
 
 // NOTE: Might have to rework this into invoking a function stored in the struct.
 func (ome *MetricsOTelExporter) Shutdown() error {
-	// TODO: Timeout?
-	ome.shutdownCtx = context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ome.shutdownCtx = ctx
+	ome.shutdownCancel = cancel
 	go ome.meterProvider.Shutdown(ome.shutdownCtx)
 	return nil
 }
 
 func (ome *MetricsOTelExporter) Wait() {
 	<-ome.shutdownCtx.Done()
+	ome.shutdownCancel()
 }
 
 func (ome *MetricsOTelExporter) Release() error {

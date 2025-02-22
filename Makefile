@@ -1,6 +1,12 @@
 APP_NAME := lspwatch
 VERSION := $(shell git describe --tags --always)
 BUILD_DIR := build
+TEST_DATA_DIR := testdata
+COVERAGE_DIR := coverage
+
+OTEL_EXPORTS_DIR := /tmp/file-exporter
+CONTAINER_ID_FILE := /tmp/$(APP_NAME)-test-container-id
+
 SRC := $(shell find . -name '*.go' -not -path "./vendor/*")
 
 .PHONY: build
@@ -16,7 +22,8 @@ run: build
 .PHONY: unit-tests
 unit-tests:
 	@echo "Running unit tests..."
-	go test -v ./...
+	mkdir -p $(COVERAGE_DIR)/unit
+	go test -v -cover ./... -args -test.gocoverdir="$(PWD)/$(COVERAGE_DIR)/unit"
 
 .PHONY: fmt
 fmt:
@@ -31,7 +38,12 @@ tidy:
 .PHONY: clean
 clean:
 	@echo "Cleaning up..."
-	@rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)
+
+.PHONY: clean-integration-runnables
+clean-integration-runnables:
+	@echo "Cleaning up integration test runnables..."
+	@rm -rf ./integration/$(BUILD_DIR)
 
 .PHONY: deps
 deps:
@@ -41,35 +53,47 @@ deps:
 .PHONY: start-otel-collector
 start-otel-collector:
 	@echo "Starting OpenTelemetry Collector..."
-	rm -rf /tmp/file-exporter
-	mkdir -m 777 /tmp/file-exporter
-	@container_id=$$(docker run -d -p 4317:4317 -v /tmp/file-exporter:/file-exporter -v ./integration/otel_config.yaml:/etc/otelcol-contrib/config.yaml otel/opentelemetry-collector-contrib ) && \
-	echo "$$container_id" > /tmp/$(APP_NAME)-test-container-id && \
+	rm -rf $(OTEL_EXPORTS_DIR)
+	mkdir -m 777 $(OTEL_EXPORTS_DIR)
+	@container_id=$$(docker run -d -p 4317:4317 -v $(OTEL_EXPORTS_DIR):/file-exporter -v ./integration/otel_config.yaml:/etc/otelcol-contrib/config.yaml otel/opentelemetry-collector-contrib ) && \
+	echo "$$container_id" > $(CONTAINER_ID_FILE) && \
 	echo "Container started with ID: $$container_id"
 
+.PHONY: build-test
+build-test: clean
+	@echo "Building lspwatch for testing..."
+	rm -rf $(COVERAGE_DIR)
+	go build -cover -o $(BUILD_DIR)/$(APP_NAME)_cov
+
 .PHONY: build-integration-runnables
-build-integration-runnables:
+build-integration-runnables: clean-integration-runnables
 	@echo "Building integration runnables..."
-	rm -rf ./integration/$(BUILD_DIR)
 	go build -o ./integration/$(BUILD_DIR)/ ./integration/cmd/*.go
 
 .PHONY: set-up-test-dependencies
-set-up-test-dependencies: build build-integration-runnables start-otel-collector 
+set-up-test-dependencies: build-test build-integration-runnables start-otel-collector 
 
 .PHONY: stop-otel-collector
 stop-otel-collector:
 	@echo "Stopping OpenTelemetry Collector..."
-	docker container stop $$(cat /tmp/$(APP_NAME)-test-container-id)
-	rm -f /tmp/$(APP_NAME)-test-container-id
-	rm -rf /tmp/file-exporter
+	docker container stop $$(cat $(CONTAINER_ID_FILE))
+	rm -f $(CONTAINER_ID_FILE)
+	rm -rf $(OTEL_EXPORTS_DIR)
 
 .PHONY: tear-down-test-dependencies
-tear-down-test-dependencies: stop-otel-collector clean
+tear-down-test-dependencies: stop-otel-collector
 
 .PHONY: integration-tests
 integration-tests:
 	@echo "Running integration tests..."
-	cd integration && go test -v
+	mkdir -p $(COVERAGE_DIR)/int
+	TEST_DATA_DIR=$(TEST_DATA_DIR) \
+	LSPWATCH_BIN=$(PWD)/$(BUILD_DIR)/$(APP_NAME)_cov \
+	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
+	go -C integration test -v 
+
+.PHONY: ci-integration-tests
+ci-integration-tests: set-up-test-dependencies integration-tests tear-down-test-dependencies
 
 .PHONY: help
 help:

@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// TODO: Tests.
+
 // AssertExitsAfter returns true if the function terminates after the timeout.
 // WARNING: The goroutine running fn will not be terminated when this function returns.
 // Code in fn may run beyond the timeout. Caller is responsible for stopping work in fn.

@@ -99,6 +99,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 		select {
 		case err := <-processWatcher.ProcessExited():
 			{
+				logger.Info("language server process exited")
 				if err != nil {
 					exitCode = serverCmd.ProcessState.ExitCode()
 				}
