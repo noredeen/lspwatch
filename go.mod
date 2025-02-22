@@ -6,7 +6,6 @@ toolchain go1.23.4
 
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.34.0
-	github.com/bombsimon/logrusr/v4 v4.1.0
 	github.com/elliotchance/orderedmap/v3 v3.0.0
 	github.com/go-playground/validator/v10 v10.24.0
 	github.com/google/go-cmp v0.6.0

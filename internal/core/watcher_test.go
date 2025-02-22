@@ -14,7 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type mockMetricsRegistry struct {
+type mockWatcherMetricsRegistry struct {
 	enableMetricCalls []telemetry.AvailableMetric
 	emitMetricCalls   []telemetry.MetricRecording
 	mu                sync.Mutex
@@ -26,24 +26,24 @@ type mockProcessHandle struct {
 
 type mockProcessInfo struct{}
 
-var _ telemetry.MetricsRegistry = &mockMetricsRegistry{}
+var _ telemetry.MetricsRegistry = &mockWatcherMetricsRegistry{}
 var _ ProcessHandle = &mockProcessHandle{}
 var _ ProcessInfo = &mockProcessInfo{}
 
 // TODO all mocks
-func (m *mockMetricsRegistry) EnableMetric(metric telemetry.AvailableMetric) error {
+func (m *mockWatcherMetricsRegistry) EnableMetric(metric telemetry.AvailableMetric) error {
 	m.enableMetricCalls = append(m.enableMetricCalls, metric)
 	return nil
 }
 
-func (m *mockMetricsRegistry) EmitMetric(metric telemetry.MetricRecording) error {
+func (m *mockWatcherMetricsRegistry) EmitMetric(metric telemetry.MetricRecording) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emitMetricCalls = append(m.emitMetricCalls, metric)
 	return nil
 }
 
-func (m *mockMetricsRegistry) IsMetricEnabled(metric telemetry.AvailableMetric) bool {
+func (m *mockWatcherMetricsRegistry) IsMetricEnabled(metric telemetry.AvailableMetric) bool {
 	return true
 }
 
@@ -72,7 +72,7 @@ func TestNewProcessWatcher(t *testing.T) {
 	logger.SetOutput(io.Discard)
 	t.Run("no configured metrics", func(t *testing.T) {
 		t.Parallel()
-		metricsRegistry := mockMetricsRegistry{}
+		metricsRegistry := mockWatcherMetricsRegistry{}
 		cfg := config.LspwatchConfig{}
 		_, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
 		if err != nil {
@@ -90,7 +90,7 @@ func TestNewProcessWatcher(t *testing.T) {
 
 	t.Run("explicitly no metrics enabled in config", func(t *testing.T) {
 		t.Parallel()
-		metricsRegistry := mockMetricsRegistry{}
+		metricsRegistry := mockWatcherMetricsRegistry{}
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{},
 		}
@@ -107,7 +107,7 @@ func TestNewProcessWatcher(t *testing.T) {
 	t.Run("with configured metrics", func(t *testing.T) {
 		t.Parallel()
 		metricName := "some.metric"
-		metricsRegistry := mockMetricsRegistry{}
+		metricsRegistry := mockWatcherMetricsRegistry{}
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{metricName},
 		}
@@ -133,7 +133,7 @@ func TestProcessWatcher(t *testing.T) {
 	t.Run("emits metrics on interval and shuts down", func(t *testing.T) {
 		t.Parallel()
 		processHandle := mockProcessHandle{}
-		metricsRegistry := mockMetricsRegistry{mu: sync.Mutex{}}
+		metricsRegistry := mockWatcherMetricsRegistry{mu: sync.Mutex{}}
 		pollingIntervalSeconds := 1
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
@@ -164,13 +164,17 @@ func TestProcessWatcher(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected no errors shutting down process watcher, got '%v'", err)
 		}
-		testutil.AssertExitsAfter(t, func() { processWatcher.Wait() }, 1*time.Second)
+		testutil.AssertExitsBefore(
+			t, "waiting for process watcher shutdown",
+			func() { processWatcher.Wait() },
+			1*time.Second,
+		)
 	})
 
 	t.Run("correctly handles process exit", func(t *testing.T) {
 		t.Parallel()
 		processHandle := mockProcessHandle{done: make(chan struct{})}
-		metricsRegistry := mockMetricsRegistry{mu: sync.Mutex{}}
+		metricsRegistry := mockWatcherMetricsRegistry{mu: sync.Mutex{}}
 		pollingIntervalSeconds := 1
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
@@ -190,7 +194,11 @@ func TestProcessWatcher(t *testing.T) {
 		metricsRegistry.mu.Lock()
 		initialEmitCount := len(metricsRegistry.emitMetricCalls)
 		metricsRegistry.mu.Unlock()
-		testutil.AssertExitsAfter(t, func() { <-processWatcher.ProcessExited() }, 100*time.Millisecond)
+		testutil.AssertExitsBefore(
+			t, "waiting for process watcher exit notification",
+			func() { <-processWatcher.ProcessExited() },
+			100*time.Millisecond,
+		)
 
 		time.Sleep(2 * time.Second)
 
@@ -206,6 +214,10 @@ func TestProcessWatcher(t *testing.T) {
 			t.Fatalf("expected no errors shutting down process watcher, got '%v'", err)
 		}
 
-		testutil.AssertExitsAfter(t, func() { processWatcher.Wait() }, 500*time.Millisecond)
+		testutil.AssertExitsBefore(
+			t, "waiting for process watcher shutdown",
+			func() { processWatcher.Wait() },
+			500*time.Millisecond,
+		)
 	})
 }

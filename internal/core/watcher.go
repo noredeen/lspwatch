@@ -42,7 +42,6 @@ func (pw *ProcessWatcher) Start() error {
 			pw.logger.Errorf("error waiting for process to exit: %v", err)
 		}
 
-		pw.logger.Info("language server process exited")
 		pw.mu.Lock()
 		pw.processExited = true
 		pw.processExitedChan <- err

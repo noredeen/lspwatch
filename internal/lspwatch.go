@@ -2,7 +2,6 @@ package internal
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -31,8 +30,6 @@ type LspwatchInstance struct {
 	logger         *logrus.Logger
 	logFile        *os.File
 	serverCmd      *exec.Cmd
-	stdoutPipe     io.ReadCloser
-	stdinPipe      io.WriteCloser
 }
 
 var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
@@ -55,15 +52,7 @@ var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegis
 
 func (lspwatchInstance *LspwatchInstance) Release() error {
 	var errors []error
-	err := lspwatchInstance.stdoutPipe.Close()
-	if err != nil {
-		errors = append(errors, err)
-	}
-	err = lspwatchInstance.stdinPipe.Close()
-	if err != nil {
-		errors = append(errors, err)
-	}
-	err = lspwatchInstance.logFile.Close()
+	err := lspwatchInstance.logFile.Close()
 	if err != nil {
 		errors = append(errors, err)
 	}
@@ -86,7 +75,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 
 	startInterruptListener(serverCmd, logger)
 	exporter.Start()
-	proxyHandler.Start(lspwatchInstance.stdoutPipe, lspwatchInstance.stdinPipe)
+	proxyHandler.Start()
 	processWatcher.Start()
 
 	exitCode := 0
@@ -110,6 +99,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 		select {
 		case err := <-processWatcher.ProcessExited():
 			{
+				logger.Info("language server process exited")
 				if err != nil {
 					exitCode = serverCmd.ProcessState.ExitCode()
 				}
@@ -129,8 +119,8 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 				timer.Reset(3 * time.Second)
 			}
 		case <-timer.C:
-			logger.Info("organic language server shutdown failed. forcing with a signal...")
-			err := serverCmd.Process.Signal(syscall.SIGINT)
+			logger.Info("organic language server shutdown failed. forcing with SIGKILL...")
+			err := serverCmd.Process.Signal(syscall.SIGKILL)
 			if err != nil {
 				logger.Fatalf("error signaling language server to shut down: %v", err)
 			}
@@ -205,12 +195,12 @@ func NewLspwatchInstance(
 
 	serverCmd := exec.Command(serverShellCommand, args...)
 
-	stdoutPipe, err := serverCmd.StdoutPipe()
+	serverStdoutPipe, err := serverCmd.StdoutPipe()
 	if err != nil {
 		logger.Fatalf("error creating pipe to server's stdout: %v", err)
 	}
 
-	stdinPipe, err := serverCmd.StdinPipe()
+	serverStdinPipe, err := serverCmd.StdinPipe()
 	if err != nil {
 		logger.Fatalf("error creating pipe to server's stdin: %v", err)
 	}
@@ -263,7 +253,15 @@ func NewLspwatchInstance(
 	exporter.SetGlobalTags(tags...)
 
 	requestMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableLSPMetrics)
-	proxyHandler, err := core.NewProxyHandler(exporter, &requestMetricsRegistry, &cfg, logger)
+	proxyHandler, err := core.NewProxyHandler(
+		&cfg,
+		&requestMetricsRegistry,
+		os.Stdin,
+		os.Stdout,
+		serverStdoutPipe,
+		serverStdinPipe,
+		logger,
+	)
 	if err != nil {
 		logger.Fatalf("error initializing LSP request handler: %v", err)
 	}
@@ -294,11 +292,10 @@ func NewLspwatchInstance(
 		proxyHandler:   proxyHandler,
 		processWatcher: processWatcher,
 		serverCmd:      serverCmd,
-		stdoutPipe:     stdoutPipe,
-		stdinPipe:      stdinPipe,
 	}, nil
 }
 
+// TODO: Test
 func getTagValues(
 	cfg *config.LspwatchConfig,
 	tagGetters map[telemetry.AvailableTag]func() telemetry.TagValue,
@@ -353,6 +350,7 @@ func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	}()
 }
 
+// TODO: Test
 func newMetricsExporter(
 	cfg config.LspwatchConfig,
 	enableLogging bool,
@@ -361,7 +359,7 @@ func newMetricsExporter(
 
 	switch cfg.Exporter {
 	case "opentelemetry":
-		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry)
+		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry, enableLogging)
 		if err != nil {
 			return nil, fmt.Errorf("error creating OpenTelemetry exporter: %v", err)
 		}

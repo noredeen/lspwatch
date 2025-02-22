@@ -74,3 +74,9 @@ TODO: Show examples.
 `lspwatch` can be configured with a YAML file. Use the `--config` or `-c` flag to specify the path.
 
 TODO
+
+## Backlog
+
+- [ ] File rotation for logs and OTel local exports.
+- [ ] Support for `tsserver` messages.
+- [ ] New metric: Number of language server crashes.
