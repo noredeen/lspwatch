@@ -45,7 +45,7 @@ jobs:
         run: make ci-integration-tests
 
       - name: Combine coverage data into a profile
-        run: make combine-coverage
+        run: go tool covdata textfmt -i=${{ github.workspace }}/coverage/unit,${{ github.workspace }}/coverage/integration -o=coverage.txt
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
