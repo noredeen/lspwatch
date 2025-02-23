@@ -2,7 +2,6 @@ name: Main CI
 on:
   push:
     branches: [ main ]
-  pull_request:
 
 jobs:
   build:
@@ -42,30 +41,13 @@ jobs:
         run: make clean-coverage
 
       - name: Run unit tests
-        run: |
-          echo "PWD: $PWD"
-          echo "COVERAGE_DIR: $COVERAGE_DIR"
-          make unit-tests
-          ls -la coverage/unit
+        run: make unit-tests
 
       - name: Run integration tests
-        run: |
-          echo "PWD: $PWD"
-          echo "COVERAGE_DIR: $COVERAGE_DIR"
-          make ci-integration-tests
-          ls -la coverage/int
-
-      - name: Debug coverage
-        run: |
-          echo "Current directory: $PWD"
-          echo "Looking for coverage files in: $COVERAGE_DIR"
-          ls coverage
-          find . -name "*.coverdata" -o -name "covmeta*" -o -name "covcounters*.txt"
+        run: make ci-integration-tests
 
       - name: Combine coverage data into a profile
-        run: |
-          ls -la coverage
-          make combine-coverage
+        run: make combine-coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

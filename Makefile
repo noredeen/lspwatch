@@ -90,18 +90,11 @@ tear-down-test-dependencies: stop-otel-collector
 .PHONY: integration-tests
 integration-tests:
 	@echo "Running integration tests..."
-	@echo "Unit test coverage files before running integration tests:"
-	@ls -la $(COVERAGE_DIR)/unit
 	mkdir -p $(COVERAGE_DIR)/int
 	TEST_DATA_DIR=$(TEST_DATA_DIR) \
 	LSPWATCH_BIN=$(PWD)/$(BUILD_DIR)/$(APP_NAME)_cov \
 	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
 	go -C integration test -v -cover -covermode=atomic
-	@echo "Coverage files after integration tests:"
-	@echo "Unit:"
-	@ls -la $(COVERAGE_DIR)/unit
-	@echo "Integration:"
-	@ls -la $(COVERAGE_DIR)/int
 
 
 .PHONY: ci-integration-tests
