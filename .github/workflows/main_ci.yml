@@ -50,6 +50,7 @@ jobs:
           echo "PWD: $PWD"
           echo "COVERAGE_DIR: $COVERAGE_DIR"
           make ci-integration-tests
+          ls -la coverage/int
 
       - name: Debug coverage
         run: |
@@ -59,7 +60,9 @@ jobs:
           find . -name "*.coverdata" -o -name "covmeta*" -o -name "covcounters*.txt"
 
       - name: Combine coverage data into a profile
-        run: make combine-coverage
+        run: |
+          ls -la coverage
+          make combine-coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
