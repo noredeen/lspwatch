@@ -2,11 +2,17 @@
 <h1>
   <div class="image-wrapper" style="display: inline-block;">
     <picture>
-      <source media="(prefers-color-scheme: dark)" alt="logo" height="200" srcset="https://github.com/user-attachments/assets/8979515b-e38c-4b3c-adf4-bb0b2e5c8594" style="display: block; margin: auto;">
-      <source media="(prefers-color-scheme: light)" alt="logo" height="200" srcset="https://github.com/user-attachments/assets/c6cc34d5-44a5-4323-83b0-3ce45809499e" style="display: block; margin: auto;">
+      <source media="(prefers-color-scheme: dark)" alt="logo" height="200" srcset="https://github.com/user-attachments/assets/8979515b-e38c-4b3c-adf4-bb0b2e5c8594" style="display: block;">
+      <source media="(prefers-color-scheme: light)" alt="logo" height="200" srcset="https://github.com/user-attachments/assets/c6cc34d5-44a5-4323-83b0-3ce45809499e" style="display: block;">
       <img alt="Shows my svg">
     </picture>
   </div>
+  <a href="https://codecov.io/gh/noredeen/lspwatch" > 
+    <img src="https://codecov.io/gh/noredeen/lspwatch/graph/badge.svg?token=M174K60D0U"/> 
+  </a>
+  <a href="https://goreportcard.com/report/github.com/noredeen/lspwatch" > 
+    <img src="https://goreportcard.com/badge/github.com/noredeen/lspwatch"/>
+  </a>
 </h1>
 </div>
 
