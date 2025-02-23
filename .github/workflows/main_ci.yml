@@ -39,10 +39,22 @@ jobs:
         run: make build-test
 
       - name: Run unit tests
-        run: make unit-tests
+        run: |
+          echo "PWD: $PWD"
+          echo "COVERAGE_DIR: $COVERAGE_DIR"
+          make unit-tests
 
       - name: Run integration tests
-        run: make ci-integration-tests
+        run: |
+          echo "PWD: $PWD"
+          echo "COVERAGE_DIR: $COVERAGE_DIR"
+          make ci-integration-tests
+
+      - name: Debug coverage
+        run: |
+          echo "Current directory: $PWD"
+          echo "Looking for coverage files in: $COVERAGE_DIR"
+          find . -name "*.coverdata" -o -name "covmeta*"
 
       - name: Debug coverage
         run: |
