@@ -96,7 +96,7 @@ integration-tests:
 	TEST_DATA_DIR=$(TEST_DATA_DIR) \
 	LSPWATCH_BIN=$(PWD)/$(BUILD_DIR)/$(APP_NAME)_cov \
 	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
-	go -C integration test -v -covermode=atomic
+	go -C integration test -v -cover -covermode=atomic
 	@echo "Coverage files after integration tests:"
 	@echo "Unit:"
 	@ls -la $(COVERAGE_DIR)/unit
