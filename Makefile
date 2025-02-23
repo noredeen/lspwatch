@@ -95,6 +95,11 @@ integration-tests:
 .PHONY: ci-integration-tests
 ci-integration-tests: set-up-test-dependencies integration-tests tear-down-test-dependencies
 
+.PHONY: combine-coverage
+combine-coverage:
+	@echo "Combining coverage data..."
+	go tool covdata textfmt -i=$(COVERAGE_DIR)/unit,$(COVERAGE_DIR)/int -o=coverage.txt
+
 .PHONY: help
 help:
 	@echo "Available targets:"
