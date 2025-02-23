@@ -1,6 +1,9 @@
-name: Pull Request CI
+name: Main CI
 on:
+  push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
 
 jobs:
   build:
@@ -11,7 +14,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21.x'
+          go-version: '1.23.x'
 
       - name: Install dependencies
         run: make deps
@@ -21,7 +24,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' }}
     needs: build
     steps:
       - uses: actions/checkout@v4
@@ -29,16 +31,27 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21.x'
+          go-version: '1.23.x'
 
       - name: Install dependencies
         run: make deps
 
       - name: Build lspwatch with coverage
         run: make build-test
+      
+      - name: Clear coverage files
+        run: make clean-coverage
 
       - name: Run unit tests
         run: make unit-tests
 
       - name: Run integration tests
         run: make ci-integration-tests
+
+      - name: Combine coverage data into a profile
+        run: make combine-coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

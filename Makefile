@@ -23,7 +23,7 @@ run: build
 unit-tests:
 	@echo "Running unit tests..."
 	mkdir -p $(COVERAGE_DIR)/unit
-	go test -v -cover ./... -args -test.gocoverdir="$(PWD)/$(COVERAGE_DIR)/unit"
+	go test -v -cover -covermode=atomic ./... -args -test.gocoverdir="$(PWD)/$(COVERAGE_DIR)/unit"
 
 .PHONY: fmt
 fmt:
@@ -39,6 +39,11 @@ tidy:
 clean:
 	@echo "Cleaning up..."
 	rm -rf $(BUILD_DIR)
+
+.PHONY: clean-coverage
+clean-coverage:
+	@echo "Cleaning up coverage files..."
+	rm -rf $(COVERAGE_DIR)
 
 .PHONY: clean-integration-runnables
 clean-integration-runnables:
@@ -62,8 +67,7 @@ start-otel-collector:
 .PHONY: build-test
 build-test: clean
 	@echo "Building lspwatch for testing..."
-	rm -rf $(COVERAGE_DIR)
-	go build -cover -o $(BUILD_DIR)/$(APP_NAME)_cov
+	go build -cover -covermode=atomic -o $(BUILD_DIR)/$(APP_NAME)_cov
 
 .PHONY: build-integration-runnables
 build-integration-runnables: clean-integration-runnables
@@ -90,7 +94,8 @@ integration-tests:
 	TEST_DATA_DIR=$(TEST_DATA_DIR) \
 	LSPWATCH_BIN=$(PWD)/$(BUILD_DIR)/$(APP_NAME)_cov \
 	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
-	go -C integration test -v 
+	go -C integration test -v -cover -covermode=atomic
+
 
 .PHONY: ci-integration-tests
 ci-integration-tests: set-up-test-dependencies integration-tests tear-down-test-dependencies
