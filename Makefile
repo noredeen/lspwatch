@@ -40,6 +40,11 @@ clean:
 	@echo "Cleaning up..."
 	rm -rf $(BUILD_DIR)
 
+.PHONY: clean-coverage
+clean-coverage:
+	@echo "Cleaning up coverage files..."
+	rm -rf $(COVERAGE_DIR)
+
 .PHONY: clean-integration-runnables
 clean-integration-runnables:
 	@echo "Cleaning up integration test runnables..."
@@ -62,7 +67,6 @@ start-otel-collector:
 .PHONY: build-test
 build-test: clean
 	@echo "Building lspwatch for testing..."
-	rm -rf $(COVERAGE_DIR)
 	go build -cover -o $(BUILD_DIR)/$(APP_NAME)_cov
 
 .PHONY: build-integration-runnables

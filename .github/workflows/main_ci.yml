@@ -37,6 +37,9 @@ jobs:
 
       - name: Build lspwatch with coverage
         run: make build-test
+      
+      - name: Clear coverage files
+        run: make clean-coverage
 
       - name: Run unit tests
         run: |
