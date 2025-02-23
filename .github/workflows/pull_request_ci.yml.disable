@@ -21,7 +21,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' }}
     needs: build
     steps:
       - uses: actions/checkout@v4

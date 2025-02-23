@@ -23,7 +23,7 @@ run: build
 unit-tests:
 	@echo "Running unit tests..."
 	mkdir -p $(COVERAGE_DIR)/unit
-	go test -v -cover ./... -args -test.gocoverdir="$(PWD)/$(COVERAGE_DIR)/unit"
+	go test -v -cover -covermode=atomic ./... -args -test.gocoverdir="$(PWD)/$(COVERAGE_DIR)/unit"
 
 .PHONY: fmt
 fmt:
