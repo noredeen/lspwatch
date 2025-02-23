@@ -1,9 +1,7 @@
-name: CI
+name: Main CI
 on:
   push:
     branches: [ main ]
-  pull_request:
-  merge_group:
 
 jobs:
   build:
@@ -22,33 +20,8 @@ jobs:
       - name: Build lspwatch
         run: make build
 
-  pr_test:
+  test:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' }}
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21.x'
-
-      - name: Install dependencies
-        run: make deps
-
-      - name: Build lspwatch with coverage
-        run: make build-test
-
-      - name: Run unit tests
-        run: make unit-tests
-
-      - name: Run integration tests
-        run: make ci-integration-tests
-
-  main_test:
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: build
     steps:
       - uses: actions/checkout@v4
