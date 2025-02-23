@@ -43,6 +43,7 @@ jobs:
           echo "PWD: $PWD"
           echo "COVERAGE_DIR: $COVERAGE_DIR"
           make unit-tests
+          ls -la coverage/unit
 
       - name: Run integration tests
         run: |
@@ -56,13 +57,6 @@ jobs:
           echo "Looking for coverage files in: $COVERAGE_DIR"
           ls coverage
           find . -name "*.coverdata" -o -name "covmeta*" -o -name "covcounters*.txt"
-
-      - name: Debug coverage
-        run: |
-          echo "Unit test coverage files:"
-          ls -la coverage/unit/
-          echo "Integration test coverage files:"
-          ls -la coverage/int/
 
       - name: Combine coverage data into a profile
         run: make combine-coverage
