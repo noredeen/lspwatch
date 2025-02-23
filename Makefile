@@ -67,7 +67,7 @@ start-otel-collector:
 .PHONY: build-test
 build-test: clean
 	@echo "Building lspwatch for testing..."
-	go build -cover -o $(BUILD_DIR)/$(APP_NAME)_cov
+	go build -cover -covermode=atomic -o $(BUILD_DIR)/$(APP_NAME)_cov
 
 .PHONY: build-integration-runnables
 build-integration-runnables: clean-integration-runnables
