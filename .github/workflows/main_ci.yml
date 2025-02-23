@@ -13,7 +13,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21.x'
+          go-version: '1.23.x'
 
       - name: Install dependencies
         run: make deps
@@ -30,7 +30,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21.x'
+          go-version: '1.23.x'
 
       - name: Install dependencies
         run: make deps
@@ -54,7 +54,8 @@ jobs:
         run: |
           echo "Current directory: $PWD"
           echo "Looking for coverage files in: $COVERAGE_DIR"
-          find . -name "*.coverdata" -o -name "covmeta*"
+          ls coverage
+          find . -name "*.coverdata" -o -name "covmeta*" -o -name "covcounters*.txt"
 
       - name: Debug coverage
         run: |
