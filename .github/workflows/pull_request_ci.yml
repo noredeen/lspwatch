@@ -1,9 +1,6 @@
-name: CI
+name: Pull Request CI
 on:
-  push:
-    branches: [ main ]
   pull_request:
-  merge_group:
 
 jobs:
   build:
@@ -24,6 +21,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' }}
     needs: build
     steps:
       - uses: actions/checkout@v4

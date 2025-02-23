@@ -1,0 +1,52 @@
+name: Main CI
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.x'
+
+      - name: Install dependencies
+        run: make deps
+
+      - name: Build lspwatch
+        run: make build
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.x'
+
+      - name: Install dependencies
+        run: make deps
+
+      - name: Build lspwatch with coverage
+        run: make build-test
+
+      - name: Run unit tests
+        run: make unit-tests
+
+      - name: Run integration tests
+        run: make ci-integration-tests
+
+      - name: Combine coverage data into a profile
+        run: make combine-coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
