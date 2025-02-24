@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -313,11 +314,16 @@ func spinUpOtelCollector(
 		t.Fatalf("error creating Docker client: %v", err)
 	}
 
-	out, err := dockerClient.ImagePull(ctx, "otel/opentelemetry-collector-contrib", image.PullOptions{})
+	out, err := dockerClient.ImagePull(ctx, "otel/opentelemetry-collector-contrib:latest", image.PullOptions{})
 	if err != nil {
 		t.Fatalf("error pulling OTel collector image: %v", err)
 	}
 	defer out.Close()
+
+	// Consume all output to ensure pull completes.
+	if _, err := io.Copy(io.Discard, out); err != nil {
+		t.Fatalf("error reading image pull output: %v", err)
+	}
 
 	t.Logf("Spinning up OTel collector with exports directory: %s...", otelExportsDir)
 
