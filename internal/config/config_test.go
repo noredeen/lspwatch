@@ -16,6 +16,15 @@ func TestReadLspwatchConfig(t *testing.T) {
 
 	testCases := []testCase{
 		{
+			name: "invalid YAML",
+			rawYaml: `
+exporter opentelemetry -
+`,
+			expectedCfg: LspwatchConfig{},
+			err:         true,
+		},
+
+		{
 			name: "opentelemetry with file protocol",
 			rawYaml: `
 exporter: opentelemetry

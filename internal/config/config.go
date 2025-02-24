@@ -67,10 +67,6 @@ func ReadLspwatchConfig(fileBytes []byte) (LspwatchConfig, error) {
 	validate := validator.New(validator.WithRequiredStructEnabled())
 	err = validate.Struct(config)
 	if err != nil {
-		if _, ok := err.(*validator.InvalidValidationError); ok {
-			return LspwatchConfig{}, fmt.Errorf("internal validation error: %v", err)
-		}
-
 		return LspwatchConfig{}, fmt.Errorf("invalid lspwatch configuration: %v", err)
 	}
 

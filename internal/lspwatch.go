@@ -51,14 +51,9 @@ var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegis
 }
 
 func (lspwatchInstance *LspwatchInstance) Release() error {
-	var errors []error
 	err := lspwatchInstance.logFile.Close()
 	if err != nil {
-		errors = append(errors, err)
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("issues: %v", errors)
+		return fmt.Errorf("error closing log file: %v", err)
 	}
 
 	return nil
@@ -295,7 +290,7 @@ func NewLspwatchInstance(
 	}, nil
 }
 
-// TODO: Test
+// TODO: Unit tests.
 func getTagValues(
 	cfg *config.LspwatchConfig,
 	tagGetters map[telemetry.AvailableTag]func() telemetry.TagValue,
@@ -350,7 +345,6 @@ func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	}()
 }
 
-// TODO: Test
 func newMetricsExporter(
 	cfg config.LspwatchConfig,
 	enableLogging bool,
