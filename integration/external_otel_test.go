@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,19 +9,24 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 )
 
 // Test flow:
 //
-//	(go test process) ----launch----
-//	    |                           |
-//	    |                           v
-//	    |              lspwatch instance [ w/ compiled mock language server ]
-//	    |                            |
-//	     ---check---     ---export---
-//	                |   |
-//	                v   v
-//	        **OTel collector in Docker**
+//	(go test process) ------launch------
+//	    |                               |
+//	    |                               v
+//	    |                  lspwatch instance [ w/ compiled mock language server ]
+//	    |                                   |
+//	     ---launch/check---     ---export---
+//	                       |   |
+//	                       v   v
+//	             **OTel collector in Docker
 
 type otelExportedObject struct {
 	ResourceMetrics []struct {
@@ -49,16 +55,6 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 		t.Fatalf("TEST_DATA_DIR is not set")
 	}
 
-	lspwatchBinary := os.Getenv("LSPWATCH_BIN")
-	if lspwatchBinary == "" {
-		t.Fatalf("LSPWATCH_BIN is not set")
-	}
-
-	coverageDir := os.Getenv("COVERAGE_DIR")
-	if coverageDir == "" {
-		t.Fatalf("COVERAGE_DIR is not set")
-	}
-
 	bytes, err := os.ReadFile(filepath.Join(testDataDir, "client_messages.json"))
 	if err != nil {
 		t.Fatalf("failed to read client messages: %v", err)
@@ -70,13 +66,83 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 		t.Fatalf("failed to unmarshal client messages: %v", err)
 	}
 
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("error getting working directory: %v", err)
+	}
+
+	t.Run("gprc exporter", func(t *testing.T) {
+		t.Parallel()
+		otelExportsDir := "/tmp/otel-grpc-exports"
+		otelConfigFile := filepath.Join(dir, "otel_config.yaml")
+		lspwatchConfigFile := filepath.Join(dir, "otel_grpc_lspwatch.yaml")
+		spinUpOtelCollector(
+			t,
+			otelExportsDir,
+			otelConfigFile,
+			nat.PortSet{
+				"4317": struct{}{},
+			},
+			nat.PortMap{
+				"4317/tcp": []nat.PortBinding{
+					{
+						HostIP:   "0.0.0.0",
+						HostPort: "4317",
+					},
+				},
+			},
+		)
+		runTest(t, lspwatchConfigFile, otelExportsDir, messages)
+	})
+
+	t.Run("http exporter", func(t *testing.T) {
+		t.Parallel()
+		otelExportsDir := "/tmp/otel-http-exports"
+		otelConfigFile := filepath.Join(dir, "otel_config.yaml")
+		lspwatchConfigFile := filepath.Join(dir, "otel_http_lspwatch.yaml")
+		spinUpOtelCollector(
+			t,
+			otelExportsDir,
+			otelConfigFile,
+			nat.PortSet{
+				"4318": struct{}{},
+			},
+			nat.PortMap{
+				"4318/tcp": []nat.PortBinding{
+					{
+						HostIP:   "0.0.0.0",
+						HostPort: "4318",
+					},
+				},
+			},
+		)
+		runTest(t, lspwatchConfigFile, otelExportsDir, messages)
+	})
+}
+
+func runTest(t *testing.T, configFile string, otelExportsDir string, messages []string) {
+	testDataDir := os.Getenv("TEST_DATA_DIR")
+	if testDataDir == "" {
+		t.Fatalf("TEST_DATA_DIR is not set")
+	}
+
+	lspwatchBinary := os.Getenv("LSPWATCH_BIN")
+	if lspwatchBinary == "" {
+		t.Fatalf("LSPWATCH_BIN is not set")
+	}
+
+	coverageDir := os.Getenv("COVERAGE_DIR")
+	if coverageDir == "" {
+		t.Fatalf("COVERAGE_DIR is not set")
+	}
+
 	t.Logf("Starting lspwatch binary '%s'", lspwatchBinary)
 
 	// Launch lspwatch process.
 	cmd := exec.Command(
 		lspwatchBinary,
 		"--config",
-		"./external_otel_lspwatch.yaml",
+		configFile,
 		"--log",
 		"--",
 		"./build/mock_language_server",
@@ -154,7 +220,11 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 	time.Sleep(13 * time.Second)
 
 	// Inspect the otel collector export for metrics
-	otelFile, err := os.Open("/tmp/file-exporter/metrics.json")
+	assertExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
+}
+
+func assertExporterOTelMetrics(t *testing.T, otelFilePath string) {
+	otelFile, err := os.Open(otelFilePath)
 	if err != nil {
 		t.Fatalf("failed to open otel metrics file: %v", err)
 	}
@@ -222,4 +292,73 @@ func assertOTelAttributes(
 	if found != len(targets) {
 		t.Errorf("expected to find attributes %v", targets)
 	}
+}
+
+func spinUpOtelCollector(
+	t *testing.T,
+	otelExportsDir string,
+	otelConfigFile string,
+	exposedPorts nat.PortSet,
+	portMap nat.PortMap,
+) string {
+	if err := os.MkdirAll(otelExportsDir, 0777); err != nil {
+		t.Fatalf("error creating OTel export directory: %v", err)
+	}
+
+	t.Logf("Spinning up OTel collector with exports directory: %s...", otelExportsDir)
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		t.Fatalf("error creating Docker client: %v", err)
+	}
+
+	config := &container.Config{
+		Image:        "otel/opentelemetry-collector-contrib",
+		ExposedPorts: exposedPorts,
+	}
+
+	hostConfig := &container.HostConfig{
+		PortBindings: portMap,
+		Mounts: []mount.Mount{
+			{
+				Type:   mount.TypeBind,
+				Source: otelExportsDir,
+				Target: "/file-exporter",
+			},
+			{
+				Type:   mount.TypeBind,
+				Source: otelConfigFile,
+				Target: "/etc/otelcol-contrib/config.yaml",
+			},
+		},
+	}
+
+	ctx := context.Background()
+	resp, err := dockerClient.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
+	if err != nil {
+		t.Fatalf("error creating otel collector container: %v", err)
+	}
+
+	err = dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{})
+	if err != nil {
+		t.Fatalf("error starting otel collector container: %v", err)
+	}
+
+	t.Logf("OTel collector container started with ID: %s", resp.ID)
+
+	t.Cleanup(func() {
+		timeoutSeconds := 10
+		err := dockerClient.ContainerStop(ctx, resp.ID, container.StopOptions{Timeout: &timeoutSeconds})
+		if err != nil {
+			t.Logf("error stopping otel collector container: %v", err)
+		}
+		if err = dockerClient.ContainerRemove(ctx, resp.ID, container.RemoveOptions{}); err != nil {
+			t.Logf("error removing otel collector container: %v", err)
+		}
+
+		if err := os.RemoveAll(otelExportsDir); err != nil {
+			t.Logf("error removing OTel export directory: %v", err)
+		}
+	})
+
+	return resp.ID
 }
