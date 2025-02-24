@@ -68,7 +68,7 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 		t.Fatalf("failed to unmarshal client messages: %v", err)
 	}
 
-	dir, err := os.Getwd()
+	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("error getting working directory: %v", err)
 	}
@@ -76,8 +76,8 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 	t.Run("gprc exporter", func(t *testing.T) {
 		t.Parallel()
 		otelExportsDir := "/tmp/otel-grpc-exports"
-		otelConfigFile := filepath.Join(dir, "otel_config.yaml")
-		lspwatchConfigFile := filepath.Join(dir, "otel_grpc_lspwatch.yaml")
+		otelConfigFile := filepath.Join(cwd, "otel_config.yaml")
+		lspwatchConfigFile := filepath.Join(cwd, "otel_grpc_lspwatch.yaml")
 		spinUpOtelCollector(
 			t,
 			otelExportsDir,
@@ -100,8 +100,8 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 	t.Run("http exporter", func(t *testing.T) {
 		t.Parallel()
 		otelExportsDir := "/tmp/otel-http-exports"
-		otelConfigFile := filepath.Join(dir, "otel_config.yaml")
-		lspwatchConfigFile := filepath.Join(dir, "otel_http_lspwatch.yaml")
+		otelConfigFile := filepath.Join(cwd, "otel_config.yaml")
+		lspwatchConfigFile := filepath.Join(cwd, "otel_http_lspwatch.yaml")
 		spinUpOtelCollector(
 			t,
 			otelExportsDir,
@@ -328,7 +328,7 @@ func spinUpOtelCollector(
 	t.Logf("Spinning up OTel collector with exports directory: '%s'...", otelExportsDir)
 
 	config := &container.Config{
-		Image:        "otel/opentelemetry-collector-contrib",
+		Image:        "otel/opentelemetry-collector-contrib:latest",
 		ExposedPorts: exposedPorts,
 	}
 
@@ -339,11 +339,17 @@ func spinUpOtelCollector(
 				Type:   mount.TypeBind,
 				Source: otelExportsDir,
 				Target: "/file-exporter",
+				BindOptions: &mount.BindOptions{
+					CreateMountpoint: true,
+				},
 			},
 			{
 				Type:   mount.TypeBind,
 				Source: otelConfigFile,
 				Target: "/etc/otelcol-contrib/config.yaml",
+				BindOptions: &mount.BindOptions{
+					CreateMountpoint: true,
+				},
 			},
 		},
 	}
