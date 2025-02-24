@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
@@ -301,15 +302,24 @@ func spinUpOtelCollector(
 	exposedPorts nat.PortSet,
 	portMap nat.PortMap,
 ) string {
+	ctx := context.Background()
+
 	if err := os.MkdirAll(otelExportsDir, 0777); err != nil {
 		t.Fatalf("error creating OTel export directory: %v", err)
 	}
 
-	t.Logf("Spinning up OTel collector with exports directory: %s...", otelExportsDir)
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		t.Fatalf("error creating Docker client: %v", err)
 	}
+
+	out, err := dockerClient.ImagePull(ctx, "otel/opentelemetry-collector-contrib", image.PullOptions{})
+	if err != nil {
+		t.Fatalf("error pulling OTel collector image: %v", err)
+	}
+	defer out.Close()
+
+	t.Logf("Spinning up OTel collector with exports directory: %s...", otelExportsDir)
 
 	config := &container.Config{
 		Image:        "otel/opentelemetry-collector-contrib",
@@ -332,7 +342,6 @@ func spinUpOtelCollector(
 		},
 	}
 
-	ctx := context.Background()
 	resp, err := dockerClient.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
 	if err != nil {
 		t.Fatalf("error creating otel collector container: %v", err)
