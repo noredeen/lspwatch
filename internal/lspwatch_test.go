@@ -6,10 +6,14 @@ import (
 	"github.com/noredeen/lspwatch/internal/config"
 )
 
-func TestNewMetricsOTelExporter(t *testing.T) {
+func TestNewMetricsExporter(t *testing.T) {
 	t.Run("Datadog exporter", func(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Exporter: "datadog",
+			Datadog: &config.DatadogConfig{
+				ClientApiKeyEnvVar: "CLIENT_API_KEY",
+				ClientAppKeyEnvVar: "CLIENT_APP_KEY",
+			},
 		}
 
 		_, err := newMetricsExporter(cfg, false)
