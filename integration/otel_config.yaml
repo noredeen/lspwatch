@@ -10,7 +10,7 @@ exporters:
   debug:
     verbosity: detailed
   file/no_rotation:
-    path: ./file-exporter/metrics.json
+    path: /file-exporter/metrics.json
 
 processors:
   batch:

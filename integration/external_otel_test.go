@@ -325,7 +325,7 @@ func spinUpOtelCollector(
 		t.Fatalf("error reading image pull output: %v", err)
 	}
 
-	t.Logf("Spinning up OTel collector with exports directory: %s...", otelExportsDir)
+	t.Logf("Spinning up OTel collector with exports directory: '%s'...", otelExportsDir)
 
 	config := &container.Config{
 		Image:        "otel/opentelemetry-collector-contrib",
