@@ -16,6 +16,15 @@ func TestReadLspwatchConfig(t *testing.T) {
 
 	testCases := []testCase{
 		{
+			name: "invalid YAML",
+			rawYaml: `
+exporter opentelemetry -
+`,
+			expectedCfg: LspwatchConfig{},
+			err:         true,
+		},
+
+		{
 			name: "opentelemetry with file protocol",
 			rawYaml: `
 exporter: opentelemetry
@@ -207,5 +216,20 @@ datadog:
 				t.Errorf("expected %+v, got %+v", testCase.expectedCfg, cfg)
 			}
 		})
+	}
+}
+
+func TestGetDefaultConfig(t *testing.T) {
+	expectedCfg := LspwatchConfig{
+		Exporter: "opentelemetry",
+		OpenTelemetry: &OpenTelemetryConfig{
+			Protocol:  "file",
+			Directory: "./",
+		},
+	}
+
+	cfg := GetDefaultConfig()
+	if !cmp.Equal(cfg, expectedCfg) {
+		t.Errorf("expected %+v, got %+v", expectedCfg, cfg)
 	}
 }

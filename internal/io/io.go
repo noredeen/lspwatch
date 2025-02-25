@@ -53,20 +53,7 @@ type LSPReadResult struct {
 	Err     error
 }
 
-// For debugging
-type LoggingReader struct {
-	r      io.Reader
-	Logger *logrus.Logger
-}
-
-var _ io.Reader = &LoggingReader{}
 var _ io.Reader = &HeaderCaptureReader{}
-
-func (lr *LoggingReader) Read(p []byte) (n int, err error) {
-	n, err = lr.r.Read(p)
-	lr.Logger.Infof("Read %d bytes: %q\n", n, p[:n])
-	return n, err
-}
 
 func (s *StringOrInt) UnmarshalJSON(data []byte) error {
 	var intVal int
@@ -178,68 +165,6 @@ func (lspmr *LSPMessageReader) ReadLSPMessage(jsonBody interface{}) LSPReadResul
 func NewHeaderCaptureReader(reader io.ReadCloser) HeaderCaptureReader {
 	return HeaderCaptureReader{reader: reader, reading: true}
 }
-
-// func ReadLSPMessage(
-// 	reader io.ReadCloser,
-// 	jsonBody interface{},
-// ) LSPReadResult {
-// 	// NOTE: Passing an io.TeeReader into a bufio.Reader will not work here
-// 	//	because the io.TeeReader will capture the entire buffer that was read
-// 	//	by textproto, and textproto.Reader reads from buffers of size > 1.
-// 	//	This means io.TeeReader will frequently capture bytes beyond the
-// 	//	header of the request. My solution is to create a custom capturing
-// 	//	reader to operate underneath bufio.Reader for retaining ONLY header bytes.
-
-// 	capReader := NewHeaderCaptureReader(reader)
-// 	bufReader := bufio.NewReader(&capReader)
-// 	tp := textproto.NewReader(bufReader)
-
-// 	headers, err := tp.ReadMIMEHeader()
-// 	if err != nil {
-// 		return LSPReadResult{
-// 			Err: fmt.Errorf("failed to read LSP request header: %v", err),
-// 		}
-// 	}
-
-// 	rawLspRequest := capReader.CapturedBytes()
-
-// 	contentLengths, ok := headers["Content-Length"]
-// 	if !ok {
-// 		return LSPReadResult{
-// 			Err: fmt.Errorf("missing Content-Length header in LSP request"),
-// 		}
-// 	}
-
-// 	contentLength := contentLengths[0]
-// 	contentByteCnt, err := strconv.Atoi(contentLength)
-// 	if err != nil {
-// 		return LSPReadResult{
-// 			Err: fmt.Errorf("Content-Length value is not an integer"),
-// 		}
-// 	}
-
-// 	contentBuffer := make([]byte, contentByteCnt)
-// 	_, err = bufReader.Read(contentBuffer)
-// 	if err != nil {
-// 		return LSPReadResult{
-// 			Err: fmt.Errorf("error reading content bytes: %v", err),
-// 		}
-// 	}
-
-// 	err = json.Unmarshal(contentBuffer, jsonBody)
-// 	if err != nil {
-// 		return LSPReadResult{
-// 			Err: fmt.Errorf("failed to decode JSON-RPC payload: %v", err),
-// 		}
-// 	}
-
-// 	rawLspRequest = append(rawLspRequest, contentBuffer...)
-
-// 	return LSPReadResult{
-// 		Headers: headers,
-// 		RawBody: &rawLspRequest,
-// 	}
-// }
 
 func CreateLogger(filePath string, enabled bool) (*logrus.Logger, *os.File, error) {
 	logger := logrus.New()

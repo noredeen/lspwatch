@@ -180,7 +180,7 @@ func (ph *ProxyHandler) listenServer() {
 							}
 						} else {
 							ph.logger.Infof(
-								"recieved client response for unbuffered request with ID=%v",
+								"received client response for unbuffered request with ID=%v",
 								serverMessage.Id.Value,
 							)
 						}
@@ -283,7 +283,7 @@ func (ph *ProxyHandler) listenClient() {
 							)
 						}
 					} else if clientMessage.Method != nil && *clientMessage.Method == "exit" {
-						ph.logger.Info("recieved exit request from client")
+						ph.logger.Info("received exit request from client")
 						shutdownMessage = readResult.RawBody
 						ph.raiseShutdownRequest()
 						// Skip forwarding the shutdown message

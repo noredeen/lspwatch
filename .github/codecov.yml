@@ -1,0 +1,12 @@
+coverage:
+  status:
+    project:
+      default:
+        # Set to true to avoid failing PRs
+        informational: true
+    patch:
+      default:
+        # Set to true to avoid failing PRs
+        informational: true
+ignore:
+  - "internal/testutil"

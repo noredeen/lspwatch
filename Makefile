@@ -55,15 +55,6 @@ deps:
 	@echo "Downloading dependencies..."
 	go mod download
 
-.PHONY: start-otel-collector
-start-otel-collector:
-	@echo "Starting OpenTelemetry Collector..."
-	rm -rf $(OTEL_EXPORTS_DIR)
-	mkdir -m 777 $(OTEL_EXPORTS_DIR)
-	@container_id=$$(docker run -d -p 4317:4317 -v $(OTEL_EXPORTS_DIR):/file-exporter -v ./integration/otel_config.yaml:/etc/otelcol-contrib/config.yaml otel/opentelemetry-collector-contrib ) && \
-	echo "$$container_id" > $(CONTAINER_ID_FILE) && \
-	echo "Container started with ID: $$container_id"
-
 .PHONY: build-test
 build-test: clean
 	@echo "Building lspwatch for testing..."
@@ -72,10 +63,7 @@ build-test: clean
 .PHONY: build-integration-runnables
 build-integration-runnables: clean-integration-runnables
 	@echo "Building integration runnables..."
-	go build -o ./integration/$(BUILD_DIR)/ ./integration/cmd/*.go
-
-.PHONY: set-up-test-dependencies
-set-up-test-dependencies: build-test build-integration-runnables start-otel-collector 
+	go build -C integration -o $(BUILD_DIR)/ ./cmd/...
 
 .PHONY: stop-otel-collector
 stop-otel-collector:
@@ -96,9 +84,8 @@ integration-tests:
 	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
 	go -C integration test -v -cover -covermode=atomic
 
-
 .PHONY: ci-integration-tests
-ci-integration-tests: set-up-test-dependencies integration-tests tear-down-test-dependencies
+ci-integration-tests: build-test build-integration-runnables integration-tests
 
 .PHONY: combine-coverage
 combine-coverage:

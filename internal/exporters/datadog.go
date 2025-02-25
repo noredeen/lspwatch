@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// TODO: Make these configurable.
 const defaultBatchSize = 100
 const defaultBatchTimeout = 30 * time.Second
 

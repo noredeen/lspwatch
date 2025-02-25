@@ -321,7 +321,7 @@ func newOTelMeterProvider(exporter sdkmetric.Exporter, res *resource.Resource) *
 	return meterProvider
 }
 
-func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Exporter, error) {
+func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (*otlpmetricgrpc.Exporter, error) {
 	options := []otlpmetricgrpc.Option{
 		otlpmetricgrpc.WithEndpointURL(cfg.MetricsEndpointURL),
 		otlpmetricgrpc.WithHeaders(cfg.Headers),
@@ -360,7 +360,7 @@ func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Expo
 	return metricExporter, nil
 }
 
-func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (sdkmetric.Exporter, error) {
+func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (*otlpmetrichttp.Exporter, error) {
 	options := []otlpmetrichttp.Option{
 		otlpmetrichttp.WithEndpointURL(cfg.MetricsEndpointURL),
 		otlpmetrichttp.WithHeaders(cfg.Headers),
