@@ -218,3 +218,18 @@ datadog:
 		})
 	}
 }
+
+func TestGetDefaultConfig(t *testing.T) {
+	expectedCfg := LspwatchConfig{
+		Exporter: "opentelemetry",
+		OpenTelemetry: &OpenTelemetryConfig{
+			Protocol:  "file",
+			Directory: "./",
+		},
+	}
+
+	cfg := GetDefaultConfig()
+	if !cmp.Equal(cfg, expectedCfg) {
+		t.Errorf("expected %+v, got %+v", expectedCfg, cfg)
+	}
+}

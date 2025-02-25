@@ -76,8 +76,8 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 	t.Run("gprc exporter", func(t *testing.T) {
 		t.Parallel()
 		otelExportsDir := createTempWritableDir(t, "otel-grpc-exports")
-		otelConfigFile := filepath.Join(cwd, "otel_config.yaml")
-		lspwatchConfigFile := filepath.Join(cwd, "otel_grpc_lspwatch.yaml")
+		otelConfigFile := filepath.Join(cwd, "config", "otel_config.yaml")
+		lspwatchConfigFile := filepath.Join(cwd, "config", "otel_grpc_lspwatch.yaml")
 		spinUpOtelCollector(
 			t,
 			otelExportsDir,
@@ -100,8 +100,8 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 	t.Run("http exporter", func(t *testing.T) {
 		t.Parallel()
 		otelExportsDir := createTempWritableDir(t, "otel-http-exports")
-		otelConfigFile := filepath.Join(cwd, "otel_config.yaml")
-		lspwatchConfigFile := filepath.Join(cwd, "otel_http_lspwatch.yaml")
+		otelConfigFile := filepath.Join(cwd, "config", "otel_config.yaml")
+		lspwatchConfigFile := filepath.Join(cwd, "config", "otel_http_lspwatch.yaml")
 		spinUpOtelCollector(
 			t,
 			otelExportsDir,
@@ -145,7 +145,6 @@ func runTest(t *testing.T, configFile string, otelExportsDir string, messages []
 		lspwatchBinary,
 		"--config",
 		configFile,
-		"--log",
 		"--",
 		"./build/mock_language_server",
 	)
