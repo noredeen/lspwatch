@@ -75,7 +75,10 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 
 	t.Run("gprc exporter", func(t *testing.T) {
 		t.Parallel()
-		otelExportsDir := "/tmp/otel-grpc-exports"
+		otelExportsDir, err := os.MkdirTemp("", "otel-grpc-exports-*")
+		if err != nil {
+			t.Fatalf("error creating temp directory: %v", err)
+		}
 		otelConfigFile := filepath.Join(cwd, "otel_config.yaml")
 		lspwatchConfigFile := filepath.Join(cwd, "otel_grpc_lspwatch.yaml")
 		spinUpOtelCollector(
@@ -99,7 +102,10 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 
 	t.Run("http exporter", func(t *testing.T) {
 		t.Parallel()
-		otelExportsDir := "/tmp/otel-http-exports"
+		otelExportsDir, err := os.MkdirTemp("", "otel-http-exports-*")
+		if err != nil {
+			t.Fatalf("error creating temp directory: %v", err)
+		}
 		otelConfigFile := filepath.Join(cwd, "otel_config.yaml")
 		lspwatchConfigFile := filepath.Join(cwd, "otel_http_lspwatch.yaml")
 		spinUpOtelCollector(
@@ -347,9 +353,6 @@ func spinUpOtelCollector(
 				Type:   mount.TypeBind,
 				Source: otelConfigFile,
 				Target: "/etc/otelcol-contrib/config.yaml",
-				BindOptions: &mount.BindOptions{
-					CreateMountpoint: true,
-				},
 			},
 		},
 	}
