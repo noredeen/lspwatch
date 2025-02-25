@@ -105,7 +105,6 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 	})
 
 	t.Run("http exporter", func(t *testing.T) {
-		t.Skip()
 		t.Parallel()
 		otelExportsDir, err := os.MkdirTemp("", "otel-http-exports-*")
 		if err != nil {
