@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
-// TODO: scenario: forwarding the interrupt signal fails
+// TODO: Scenario: forwarding the interrupt signal fails.
+// TODO: Make util for repetitive setup code.
+// TODO: Proper test cleanup.
 
 func TestInvalidCommand(t *testing.T) {
 	t.Parallel()

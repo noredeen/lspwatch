@@ -143,7 +143,6 @@ func TestLSPMessageReader(t *testing.T) {
 
 	t.Run("missing Content-Length header", func(t *testing.T) {
 		t.Parallel()
-
 		missingContentLengthInput := "\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
 		reader := io.NopCloser(strings.NewReader(missingContentLengthInput))
 
@@ -156,6 +155,30 @@ func TestLSPMessageReader(t *testing.T) {
 
 		if !strings.Contains(res.Err.Error(), "missing Content-Length header") {
 			t.Fatalf("expected error to contain 'missing Content-Length header', but got %s", res.Err.Error())
+		}
+	})
+
+	t.Run("Content-Length header is not an int", func(t *testing.T) {
+		t.Parallel()
+		input := "Content-Length: not-an-int\r\n\r\n{}"
+		reader := io.NopCloser(strings.NewReader(input))
+		lspmr := NewLSPMessageReader(reader)
+		var body LSPClientMessage
+		res := lspmr.ReadLSPMessage(&body)
+		if res.Err == nil {
+			t.Errorf("expected to get error when Content-Length header is not an int, but got nil")
+		}
+	})
+
+	t.Run("invalid JSON body", func(t *testing.T) {
+		t.Parallel()
+		input := "Content-Length: 133\r\n\r\n{\"jsonrpc\"/ \"2.0\", \"method\"; \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
+		reader := io.NopCloser(strings.NewReader(input))
+		lspmr := NewLSPMessageReader(reader)
+		var body LSPClientMessage
+		res := lspmr.ReadLSPMessage(&body)
+		if res.Err == nil {
+			t.Errorf("expected to get error when JSON body is invalid, but got nil")
 		}
 	})
 
