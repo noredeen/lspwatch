@@ -76,11 +76,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 	exitCode := 0
 
 	defer func() {
-		err := lspwatchInstance.shutdownAndWait()
-		if err != nil {
-			logger.Fatalf("error shutting down lspwatch instance: %v", err)
-		}
-
+		lspwatchInstance.shutdownAndWait()
 		os.Exit(exitCode)
 	}()
 
@@ -125,7 +121,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 
 // Unlike public Shutdown() methods in lspwatch, this will block and wait for
 // all shutdowns to complete before exiting.
-func (lspwatchInstance *LspwatchInstance) shutdownAndWait() error {
+func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 	logger := lspwatchInstance.logger
 	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
@@ -133,12 +129,12 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() error {
 
 	err := proxyHandler.Shutdown()
 	if err != nil {
-		return fmt.Errorf("error shutting down proxy handler: %v", err)
+		logger.Fatalf("error shutting down proxy handler: %v", err)
 	}
 
 	err = processWatcher.Shutdown()
 	if err != nil {
-		return fmt.Errorf("error shutting down process watcher: %v", err)
+		logger.Fatalf("error shutting down process watcher: %v", err)
 	}
 
 	proxyHandler.Wait()
@@ -148,19 +144,22 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() error {
 	// flushed their metrics and exited.
 	err = exporter.Shutdown()
 	if err != nil {
-		return fmt.Errorf("error shutting down exporter: %v", err)
+		logger.Fatalf("error shutting down metrics exporter: %v", err)
 	}
 
 	exporter.Wait()
 	logger.Info("metrics exporter shutdown complete")
 	logger.Info("lspwatch shutdown complete. goodbye!")
 
-	err = lspwatchInstance.Release()
+	err = exporter.Release()
 	if err != nil {
-		return fmt.Errorf("error releasing lspwatch resources: %v", err)
+		logger.Errorf("error releasing metrics exporter: %v", err)
 	}
 
-	return nil
+	err = lspwatchInstance.Release()
+	if err != nil {
+		logger.Errorf("error releasing lspwatch resources: %v", err)
+	}
 }
 
 // NOTE: This starts the language server process. Proxying and monitoring facilities
