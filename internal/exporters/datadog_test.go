@@ -255,14 +255,52 @@ func TestDefaultMetricsProcessor_processBatch(t *testing.T) {
 	}
 }
 
-// TODO
-func TestDatadogMetricsExporter_RegisterMetric(t *testing.T) {
-
-}
-
-// TODO
 func TestNewDatadogMetricsExporter(t *testing.T) {
+	t.Run("default timeout and batch size", func(t *testing.T) {
+		cfg := &config.DatadogConfig{
+			ClientApiKeyEnvVar: "TEST_DATADOG_API_KEY",
+			ClientAppKeyEnvVar: "TEST_DATADOG_APP_KEY",
+		}
 
+		datadogCtx := GetDatadogContext(cfg)
+		exporter, err := NewDatadogMetricsExporter(datadogCtx, cfg, false)
+		if err != nil {
+			t.Fatalf("expected NewDatadogMetricsExporter not to return an error, got: %v", err)
+		}
+
+		if exporter.batchSize != defaultBatchSize {
+			t.Errorf("expected batch size to be %d, got %d", defaultBatchSize, exporter.batchSize)
+		}
+
+		if exporter.batchTimeout != defaultBatchTimeout {
+			t.Errorf("expected batch timeout to be %d, got %d", defaultBatchTimeout, exporter.batchTimeout)
+		}
+	})
+
+	t.Run("custom timeout and batch size", func(t *testing.T) {
+		batchSize := 10
+		batchTimeout := 20
+		cfg := &config.DatadogConfig{
+			ClientApiKeyEnvVar: "TEST_DATADOG_API_KEY",
+			ClientAppKeyEnvVar: "TEST_DATADOG_APP_KEY",
+			BatchSize:          &batchSize,
+			BatchTimeout:       &batchTimeout,
+		}
+
+		datadogCtx := GetDatadogContext(cfg)
+		exporter, err := NewDatadogMetricsExporter(datadogCtx, cfg, false)
+		if err != nil {
+			t.Fatalf("expected NewDatadogMetricsExporter not to return an error, got: %v", err)
+		}
+
+		if exporter.batchSize != batchSize {
+			t.Errorf("expected batch size to be %d, got %d", batchSize, exporter.batchSize)
+		}
+
+		if exporter.batchTimeout != time.Duration(batchTimeout)*time.Second {
+			t.Errorf("expected batch timeout to be %d, got %d", batchTimeout, exporter.batchTimeout)
+		}
+	})
 }
 
 func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
