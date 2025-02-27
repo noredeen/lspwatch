@@ -56,50 +56,98 @@ func TestInvalidCommand(t *testing.T) {
 }
 
 func TestBadConfigFile(t *testing.T) {
-	t.Parallel()
-	lspwatchBinary := os.Getenv("LSPWATCH_BIN")
-	if lspwatchBinary == "" {
-		t.Fatalf("LSPWATCH_BIN is not set")
-	}
+	t.Run("non-readable config file", func(t *testing.T) {
+		t.Parallel()
+		lspwatchBinary := os.Getenv("LSPWATCH_BIN")
+		if lspwatchBinary == "" {
+			t.Fatalf("LSPWATCH_BIN is not set")
+		}
 
-	coverageDir := os.Getenv("COVERAGE_DIR")
-	if coverageDir == "" {
-		t.Fatalf("COVERAGE_DIR is not set")
-	}
+		coverageDir := os.Getenv("COVERAGE_DIR")
+		if coverageDir == "" {
+			t.Fatalf("COVERAGE_DIR is not set")
+		}
 
-	// Missing argument.
-	cmd := exec.Command(
-		lspwatchBinary,
-		"--config",
-		"/dev/null",
-		"--",
-		"pwd",
-	)
+		// Missing argument.
+		cmd := exec.Command(
+			lspwatchBinary,
+			"--config",
+			"/dev/null",
+			"--",
+			"pwd",
+		)
 
-	coverPath := fmt.Sprintf("GOCOVERDIR=%s", coverageDir)
-	t.Logf("Sending coverage data to: %s", coverageDir)
-	cmd.Env = append(os.Environ(), coverPath)
+		coverPath := fmt.Sprintf("GOCOVERDIR=%s", coverageDir)
+		t.Logf("Sending coverage data to: %s", coverageDir)
+		cmd.Env = append(os.Environ(), coverPath)
 
-	err := cmd.Start()
-	if err != nil {
-		t.Fatalf("error starting lspwatch: %v", err)
-	}
+		err := cmd.Start()
+		if err != nil {
+			t.Fatalf("error starting lspwatch: %v", err)
+		}
 
-	done := make(chan struct{})
-	go func() {
-		cmd.Process.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		break
-	case <-time.After(3 * time.Second):
-		t.Fatalf("lspwatch did not exit after 3 seconds")
-	}
+		done := make(chan struct{})
+		go func() {
+			cmd.Process.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+			break
+		case <-time.After(3 * time.Second):
+			t.Fatalf("lspwatch did not exit after 3 seconds")
+		}
 
-	if cmd.ProcessState.ExitCode() == 0 {
-		t.Error("expected non-zero exit code")
-	}
+		if cmd.ProcessState.ExitCode() == 0 {
+			t.Error("expected non-zero exit code")
+		}
+	})
+
+	t.Run("missing env file", func(t *testing.T) {
+		t.Parallel()
+		lspwatchBinary := os.Getenv("LSPWATCH_BIN")
+		if lspwatchBinary == "" {
+			t.Fatalf("LSPWATCH_BIN is not set")
+		}
+
+		coverageDir := os.Getenv("COVERAGE_DIR")
+		if coverageDir == "" {
+			t.Fatalf("COVERAGE_DIR is not set")
+		}
+
+		cmd := exec.Command(
+			lspwatchBinary,
+			"--config",
+			"config/bad_lspwatch.yaml",
+			"--",
+			"pwd",
+		)
+
+		coverPath := fmt.Sprintf("GOCOVERDIR=%s", coverageDir)
+		t.Logf("Sending coverage data to: %s", coverageDir)
+		cmd.Env = append(os.Environ(), coverPath)
+
+		err := cmd.Start()
+		if err != nil {
+			t.Fatalf("error starting lspwatch: %v", err)
+		}
+
+		done := make(chan struct{})
+		go func() {
+			cmd.Process.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+			break
+		case <-time.After(4 * time.Second):
+			t.Fatalf("lspwatch did not exit after 4 seconds")
+		}
+
+		if cmd.ProcessState.ExitCode() == 0 {
+			t.Error("expected non-zero exit code")
+		}
+	})
 }
 
 func TestServerProcessDiesAbruptly(t *testing.T) {

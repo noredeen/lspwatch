@@ -3,7 +3,6 @@ package internal
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -18,18 +17,17 @@ import (
 	lspwatch_io "github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
 	"github.com/shirou/gopsutil/v4/mem"
-	"github.com/shirou/gopsutil/v4/process"
 	"github.com/sirupsen/logrus"
 )
 
 type LspwatchInstance struct {
-	cfg            config.LspwatchConfig
-	exporter       telemetry.MetricsExporter
-	proxyHandler   *core.ProxyHandler
-	processWatcher *core.ProcessWatcher
-	logger         *logrus.Logger
-	logFile        *os.File
-	serverCmd      *exec.Cmd
+	cfg              config.LspwatchConfig
+	exporter         telemetry.MetricsExporter
+	proxyHandler     *core.ProxyHandler
+	processWatcher   *core.ProcessWatcher
+	logger           *logrus.Logger
+	logFile          *os.File
+	serverCmdProcess core.CommandProcess
 }
 
 var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
@@ -63,12 +61,12 @@ func (lspwatchInstance *LspwatchInstance) Release() error {
 // Returns only when all components in lspwatch have shut down.
 func (lspwatchInstance *LspwatchInstance) Run() {
 	logger := lspwatchInstance.logger
-	serverCmd := lspwatchInstance.serverCmd
+	serverCmdProcess := lspwatchInstance.serverCmdProcess
 	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
 	processWatcher := lspwatchInstance.processWatcher
 
-	startInterruptListener(serverCmd, logger)
+	startInterruptListener(serverCmdProcess, logger)
 	exporter.Start()
 	proxyHandler.Start()
 	processWatcher.Start()
@@ -88,13 +86,9 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 
 	for {
 		select {
-		case err := <-processWatcher.ProcessExited():
+		case exitCode = <-processWatcher.ProcessExited():
 			{
 				logger.Info("language server process exited")
-				if err != nil {
-					exitCode = serverCmd.ProcessState.ExitCode()
-				}
-
 				return
 			}
 		case <-proxyHandler.ShutdownRequested():
@@ -111,7 +105,7 @@ func (lspwatchInstance *LspwatchInstance) Run() {
 			}
 		case <-timer.C:
 			logger.Info("organic language server shutdown failed. forcing with SIGKILL...")
-			err := serverCmd.Process.Signal(syscall.SIGKILL)
+			err := serverCmdProcess.Signal(syscall.SIGKILL)
 			if err != nil {
 				logger.Fatalf("error signaling language server to shut down: %v", err)
 			}
@@ -187,26 +181,25 @@ func NewLspwatchInstance(
 		}
 	}
 
-	serverCmd := exec.Command(serverShellCommand, args...)
-
-	serverStdoutPipe, err := serverCmd.StdoutPipe()
+	serverCmdProcess := core.NewDefaultCommandProcess(serverShellCommand, args...)
+	serverStdoutPipe, err := serverCmdProcess.StdoutPipe()
 	if err != nil {
 		logger.Fatalf("error creating pipe to server's stdout: %v", err)
 	}
 
-	serverStdinPipe, err := serverCmd.StdinPipe()
+	serverStdinPipe, err := serverCmdProcess.StdinPipe()
 	if err != nil {
 		logger.Fatalf("error creating pipe to server's stdin: %v", err)
 	}
 
 	// TODO: Take args[1:]
-	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args)
-	err = serverCmd.Start()
+	logger.Infof("starting language server using command '%v' and args '%v'", serverCmdProcess.CommandPath(), serverCmdProcess.CommandArgs())
+	err = serverCmdProcess.Start()
 	if err != nil {
 		logger.Fatalf("error starting language server process: %v", err)
 	}
 
-	logger.Infof("launched language server process (PID=%v)", serverCmd.Process.Pid)
+	logger.Infof("launched language server process (PID=%v)", serverCmdProcess.ProcessPid())
 
 	exporter, err := newMetricsExporter(cfg, enableLogging)
 	if err != nil {
@@ -219,7 +212,7 @@ func NewLspwatchInstance(
 		},
 		telemetry.LanguageServer: func() telemetry.TagValue {
 			// TODO: This is not robust.
-			return telemetry.TagValue(filepath.Base(serverCmd.Path))
+			return telemetry.TagValue(filepath.Base(serverCmdProcess.CommandPath()))
 		},
 		telemetry.RAM: func() telemetry.TagValue {
 			vmem, err := mem.VirtualMemory()
@@ -260,16 +253,17 @@ func NewLspwatchInstance(
 		logger.Fatalf("error initializing LSP request handler: %v", err)
 	}
 
-	processHandle := serverCmd.Process
-	processInfo, err := process.NewProcess(int32(processHandle.Pid))
+	// processHandle := serverCmd.Process
+	// processInfo, err := process.NewProcess(int32(processHandle.Pid))
 	if err != nil {
 		logger.Fatalf("error creating process info: %v", err)
 	}
 
 	serverMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableServerMetrics)
 	processWatcher, err := core.NewProcessWatcher(
-		processHandle,
-		processInfo,
+		serverCmdProcess,
+		// processHandle,
+		// processInfo,
 		&serverMetricsRegistry,
 		&cfg,
 		logger,
@@ -285,7 +279,7 @@ func NewLspwatchInstance(
 		logFile:        logFile,
 		proxyHandler:   proxyHandler,
 		processWatcher: processWatcher,
-		serverCmd:      serverCmd,
+		// serverCmd:      serverCmd,
 	}, nil
 }
 
@@ -325,18 +319,18 @@ func getConfig(path string) (config.LspwatchConfig, error) {
 	return cfg, nil
 }
 
-func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
+func startInterruptListener(serverCmdProcess core.CommandProcess, logger *logrus.Logger) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
 
 	go func() {
 		for sig := range signalChan {
 			logger.Infof("lspwatch process interrupted. forwarding signal to language server...")
-			err := serverCmd.Process.Signal(sig)
+			err := serverCmdProcess.Signal(sig)
 			if err != nil {
 				logger.Fatalf(
 					"error forwarding signal to language server process (PID=%v): %v",
-					serverCmd.Process.Pid,
+					serverCmdProcess.ProcessPid(),
 					err,
 				)
 			}

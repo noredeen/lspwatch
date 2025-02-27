@@ -1,0 +1,9 @@
+exporter: opentelemetry
+env_file: /nonexistent/path
+tags:
+  - os
+  - language_server
+  - ram
+  - user
+opentelemetry:
+  protocol: file

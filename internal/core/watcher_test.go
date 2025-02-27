@@ -20,15 +20,13 @@ type mockWatcherMetricsRegistry struct {
 	mu                sync.Mutex
 }
 
-type mockProcessHandle struct {
+type mockCommandProcess struct {
 	done chan struct{}
 }
 
-type mockProcessInfo struct{}
-
 var _ telemetry.MetricsRegistry = &mockWatcherMetricsRegistry{}
-var _ ProcessHandle = &mockProcessHandle{}
-var _ ProcessInfo = &mockProcessInfo{}
+
+var _ CommandProcess = &mockCommandProcess{}
 
 // TODO all mocks
 func (m *mockWatcherMetricsRegistry) EnableMetric(metric telemetry.AvailableMetric) error {
@@ -47,7 +45,7 @@ func (m *mockWatcherMetricsRegistry) IsMetricEnabled(metric telemetry.AvailableM
 	return true
 }
 
-func (m *mockProcessHandle) Wait() (*os.ProcessState, error) {
+func (m *mockCommandProcess) Wait() (*os.ProcessState, error) {
 	<-m.done
 	// NOTE: Careful when using this object: no way to initialize an os.ProcessState
 	// so the content of the object should not be relied on.
@@ -55,26 +53,53 @@ func (m *mockProcessHandle) Wait() (*os.ProcessState, error) {
 	return &state, nil
 }
 
-func (m *mockProcessHandle) kill() {
+func (m *mockCommandProcess) kill() {
 	close(m.done)
 }
 
-func (m *mockProcessInfo) MemoryInfo() (*process.MemoryInfoStat, error) {
+func (m *mockCommandProcess) ProcessMemoryInfo() (*process.MemoryInfoStat, error) {
 	return &process.MemoryInfoStat{
 		RSS: 1000,
 	}, nil
 }
 
+func (m *mockCommandProcess) CommandArgs() []string {
+	return []string{}
+}
+
+func (m *mockCommandProcess) CommandPath() string {
+	return ""
+}
+
+func (m *mockCommandProcess) ProcessPid() int {
+	return 0
+}
+
+func (m *mockCommandProcess) Signal(sig os.Signal) error {
+	return nil
+}
+
+func (m *mockCommandProcess) Start() error {
+	return nil
+}
+
+func (m *mockCommandProcess) StdinPipe() (io.WriteCloser, error) {
+	return nil, nil
+}
+
+func (m *mockCommandProcess) StdoutPipe() (io.ReadCloser, error) {
+	return nil, nil
+}
+
 func TestNewProcessWatcher(t *testing.T) {
-	processHandle := mockProcessHandle{}
-	processInfo := mockProcessInfo{}
+	processCmd := mockCommandProcess{}
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 	t.Run("no configured metrics", func(t *testing.T) {
 		t.Parallel()
 		metricsRegistry := mockWatcherMetricsRegistry{}
 		cfg := config.LspwatchConfig{}
-		_, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		_, err := NewProcessWatcher(&processCmd, &metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -94,7 +119,7 @@ func TestNewProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{},
 		}
-		_, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		_, err := NewProcessWatcher(&processCmd, &metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -111,7 +136,7 @@ func TestNewProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{metricName},
 		}
-		_, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		_, err := NewProcessWatcher(&processCmd, &metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -129,16 +154,15 @@ func TestNewProcessWatcher(t *testing.T) {
 func TestProcessWatcher(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
-	processInfo := mockProcessInfo{}
 	t.Run("emits metrics on interval and shuts down", func(t *testing.T) {
 		t.Parallel()
-		processHandle := mockProcessHandle{}
+		processCmd := mockCommandProcess{}
 		metricsRegistry := mockWatcherMetricsRegistry{mu: sync.Mutex{}}
 		pollingIntervalSeconds := 1
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
 		}
-		processWatcher, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		processWatcher, err := NewProcessWatcher(&processCmd, &metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -173,13 +197,14 @@ func TestProcessWatcher(t *testing.T) {
 
 	t.Run("correctly handles process exit", func(t *testing.T) {
 		t.Parallel()
-		processHandle := mockProcessHandle{done: make(chan struct{})}
+		processCmd := mockCommandProcess{done: make(chan struct{})}
+		// processHandle := mockProcessHandle{done: make(chan struct{})}
 		metricsRegistry := mockWatcherMetricsRegistry{mu: sync.Mutex{}}
 		pollingIntervalSeconds := 1
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
 		}
-		processWatcher, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		processWatcher, err := NewProcessWatcher(&processCmd, &metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -189,7 +214,7 @@ func TestProcessWatcher(t *testing.T) {
 			t.Fatalf("expected no errors starting process watcher, got '%v'", err)
 		}
 
-		processHandle.kill()
+		processCmd.kill()
 		time.Sleep(500 * time.Millisecond)
 		metricsRegistry.mu.Lock()
 		initialEmitCount := len(metricsRegistry.emitMetricCalls)
