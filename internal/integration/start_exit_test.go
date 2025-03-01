@@ -77,7 +77,7 @@ func TestUnresponsiveServerProcess(t *testing.T) {
 	t.Parallel()
 	testutil.RunIntegrationTest(
 		t,
-		[]string{"--", "cat", ">", "/dev/null"},
+		[]string{"--log", "--", "cat"},
 		func(cmd *exec.Cmd) {
 			serverStdin, err := cmd.StdinPipe()
 			if err != nil {
@@ -111,6 +111,8 @@ func TestUnresponsiveServerProcess(t *testing.T) {
 			testutil.AssertExitsBefore(t, "lspwatch", func() {
 				cmd.Process.Wait()
 			}, 15*time.Second)
+
+			// TODO: MUST CHECK THE LOGS AS PART OF THE TEST.
 		},
 	)
 }
