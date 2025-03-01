@@ -3,7 +3,7 @@ VERSION := $(shell git describe --tags --always)
 BUILD_DIR := build
 TEST_DATA_DIR := testdata
 COVERAGE_DIR := coverage
-INTEGRATION_TEST_DIR := internal/integration
+INTEGRATION_TEST_DIR := ./internal/integration
 UNIT_TEST_DIRS := $(shell go list ./... | grep -v $(INTEGRATION_TEST_DIR))
 
 OTEL_EXPORTS_DIR := /tmp/file-exporter
