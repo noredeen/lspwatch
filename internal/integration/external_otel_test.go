@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/noredeen/lspwatch/internal/testutil"
 )
 
 // Test flow:
@@ -123,105 +124,86 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 }
 
 func runTest(t *testing.T, configFile string, otelExportsDir string, messages []string) {
-	testDataDir := os.Getenv("TEST_DATA_DIR")
-	if testDataDir == "" {
-		t.Fatalf("TEST_DATA_DIR is not set")
-	}
+	testutil.RunIntegrationTest(
+		t,
+		[]string{
+			"--config",
+			configFile,
+			"--",
+			"./build/mock_language_server",
+		},
+		func(cmd *exec.Cmd) {
+			serverStdin, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatalf("failed to create stdin pipe: %v", err)
+			}
+			serverStdout, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatalf("failed to create stdout pipe: %v", err)
+			}
 
-	lspwatchBinary := os.Getenv("LSPWATCH_BIN")
-	if lspwatchBinary == "" {
-		t.Fatalf("LSPWATCH_BIN is not set")
-	}
+			err = cmd.Start()
+			if err != nil {
+				t.Fatalf("failed to start lspwatch: %v", err)
+			}
 
-	coverageDir := os.Getenv("COVERAGE_DIR")
-	if coverageDir == "" {
-		t.Fatalf("COVERAGE_DIR is not set")
-	}
+			t.Cleanup(func() {
+				// For an unknown reason, this Close() is required to make the
+				// process exit gracefully.
+				err := serverStdin.Close()
+				if err != nil {
+					t.Fatalf("failed to close server stdin: %v", err)
+				}
 
-	t.Logf("Starting lspwatch binary '%s'", lspwatchBinary)
+				err = cmd.Process.Signal(os.Interrupt)
+				if err != nil {
+					t.Fatalf("failed to signal lspwatch to shutdown: %v", err)
+				}
 
-	// Launch lspwatch process.
-	cmd := exec.Command(
-		lspwatchBinary,
-		"--config",
-		configFile,
-		"--",
-		"./build/mock_language_server",
+				// Give it some time to flush coverage data
+				done := make(chan error)
+				go func() {
+					done <- cmd.Wait()
+				}()
+
+				// Wait up to 5 seconds for graceful shutdown
+				select {
+				case <-time.After(10 * time.Second):
+					t.Log("Process didn't exit gracefully, forcing kill")
+					cmd.Process.Kill()
+				case err := <-done:
+					t.Logf("Process exited with: %v", err)
+				}
+			})
+
+			// TODO: Need this?
+			go func() {
+				for {
+					buf := make([]byte, 100)
+					serverStdout.Read(buf)
+				}
+			}()
+
+			// Send client messages to lspwatch.
+			for _, message := range messages {
+				_, err = serverStdin.Write([]byte(message))
+				if err != nil {
+					t.Fatalf("failed to write message to lspwatch stdin: %v", err)
+				}
+
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			t.Logf("Sent %d messages", len(messages))
+			t.Log("Waiting...")
+
+			// Wait for the language server to send all its messages and for the exporter to flush.
+			time.Sleep(13 * time.Second)
+
+			// Inspect the otel collector export for metrics
+			assertExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
+		},
 	)
-
-	coverPath := fmt.Sprintf("GOCOVERDIR=%s", coverageDir)
-	t.Logf("Sending coverage data to: %s", coverageDir)
-	cmd.Env = append(os.Environ(), coverPath)
-
-	serverStdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatalf("failed to create stdin pipe: %v", err)
-	}
-	serverStdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("failed to create stdout pipe: %v", err)
-	}
-
-	err = cmd.Start()
-	if err != nil {
-		t.Fatalf("failed to start lspwatch: %v", err)
-	}
-
-	t.Cleanup(func() {
-		// For an unknown reason, this Close() is required to make the
-		// process exit gracefully.
-		err := serverStdin.Close()
-		if err != nil {
-			t.Fatalf("failed to close server stdin: %v", err)
-		}
-
-		err = cmd.Process.Signal(os.Interrupt)
-		if err != nil {
-			t.Fatalf("failed to signal lspwatch to shutdown: %v", err)
-		}
-
-		// Give it some time to flush coverage data
-		done := make(chan error)
-		go func() {
-			done <- cmd.Wait()
-		}()
-
-		// Wait up to 5 seconds for graceful shutdown
-		select {
-		case <-time.After(10 * time.Second):
-			t.Log("Process didn't exit gracefully, forcing kill")
-			cmd.Process.Kill()
-		case err := <-done:
-			t.Logf("Process exited with: %v", err)
-		}
-	})
-
-	// TODO: Need this?
-	go func() {
-		for {
-			buf := make([]byte, 100)
-			serverStdout.Read(buf)
-		}
-	}()
-
-	// Send client messages to lspwatch.
-	for _, message := range messages {
-		_, err = serverStdin.Write([]byte(message))
-		if err != nil {
-			t.Fatalf("failed to write message to lspwatch stdin: %v", err)
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	t.Logf("Sent %d messages", len(messages))
-	t.Log("Waiting...")
-
-	// Wait for the language server to send all its messages and for the exporter to flush.
-	time.Sleep(13 * time.Second)
-
-	// Inspect the otel collector export for metrics
-	assertExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
 }
 
 func assertExporterOTelMetrics(t *testing.T, otelFilePath string) {

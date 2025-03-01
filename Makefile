@@ -48,7 +48,7 @@ clean-coverage:
 .PHONY: clean-integration-runnables
 clean-integration-runnables:
 	@echo "Cleaning up integration test runnables..."
-	@rm -rf ./integration/$(BUILD_DIR)
+	@rm -rf .internal/integration/$(BUILD_DIR)
 
 .PHONY: deps
 deps:
@@ -63,7 +63,7 @@ build-test: clean
 .PHONY: build-integration-runnables
 build-integration-runnables: clean-integration-runnables
 	@echo "Building integration runnables..."
-	go build -C integration -o $(BUILD_DIR)/ ./cmd/...
+	go build -C internal/integration -o $(BUILD_DIR)/ ./cmd/...
 
 .PHONY: stop-otel-collector
 stop-otel-collector:
@@ -82,7 +82,7 @@ integration-tests:
 	TEST_DATA_DIR=$(TEST_DATA_DIR) \
 	LSPWATCH_BIN=$(PWD)/$(BUILD_DIR)/$(APP_NAME)_cov \
 	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
-	go -C integration test -v -cover -covermode=atomic
+	go test ./internal/integration/... -v -cover -covermode=atomic
 
 .PHONY: ci-integration-tests
 ci-integration-tests: build-test build-integration-runnables integration-tests
