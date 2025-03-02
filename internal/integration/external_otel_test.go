@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -124,86 +123,84 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 }
 
 func runTest(t *testing.T, configFile string, otelExportsDir string, messages []string) {
-	testutil.RunIntegrationTest(
+	t.Helper()
+	cmd := testutil.PrepareIntegrationTest(
 		t,
-		[]string{
-			"--config",
-			configFile,
-			"--",
-			"./build/mock_language_server",
-		},
-		func(cmd *exec.Cmd) {
-			serverStdin, err := cmd.StdinPipe()
-			if err != nil {
-				t.Fatalf("failed to create stdin pipe: %v", err)
-			}
-			serverStdout, err := cmd.StdoutPipe()
-			if err != nil {
-				t.Fatalf("failed to create stdout pipe: %v", err)
-			}
-
-			err = cmd.Start()
-			if err != nil {
-				t.Fatalf("failed to start lspwatch: %v", err)
-			}
-
-			t.Cleanup(func() {
-				// For an unknown reason, this Close() is required to make the
-				// process exit gracefully.
-				err := serverStdin.Close()
-				if err != nil {
-					t.Fatalf("failed to close server stdin: %v", err)
-				}
-
-				err = cmd.Process.Signal(os.Interrupt)
-				if err != nil {
-					t.Fatalf("failed to signal lspwatch to shutdown: %v", err)
-				}
-
-				// Give it some time to flush coverage data
-				done := make(chan error)
-				go func() {
-					done <- cmd.Wait()
-				}()
-
-				// Wait up to 5 seconds for graceful shutdown
-				select {
-				case <-time.After(10 * time.Second):
-					t.Log("Process didn't exit gracefully, forcing kill")
-					cmd.Process.Kill()
-				case err := <-done:
-					t.Logf("Process exited with: %v", err)
-				}
-			})
-
-			// TODO: Need this?
-			go func() {
-				for {
-					buf := make([]byte, 100)
-					serverStdout.Read(buf)
-				}
-			}()
-
-			// Send client messages to lspwatch.
-			for _, message := range messages {
-				_, err = serverStdin.Write([]byte(message))
-				if err != nil {
-					t.Fatalf("failed to write message to lspwatch stdin: %v", err)
-				}
-
-				time.Sleep(100 * time.Millisecond)
-			}
-
-			t.Logf("Sent %d messages", len(messages))
-			t.Log("Waiting...")
-
-			// Wait for the language server to send all its messages and for the exporter to flush.
-			time.Sleep(13 * time.Second)
-
-			// Inspect the otel collector export for metrics
-			assertExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
-		},
+		"--config",
+		configFile,
+		"--",
+		"./build/mock_language_server",
 	)
+
+	serverStdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("failed to create stdin pipe: %v", err)
+	}
+	serverStdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("failed to create stdout pipe: %v", err)
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		t.Fatalf("failed to start lspwatch: %v", err)
+	}
+
+	t.Cleanup(func() {
+		// For an unknown reason, this Close() is required to make the
+		// process exit gracefully.
+		err := serverStdin.Close()
+		if err != nil {
+			t.Fatalf("failed to close server stdin: %v", err)
+		}
+
+		err = cmd.Process.Signal(os.Interrupt)
+		if err != nil {
+			t.Fatalf("failed to signal lspwatch to shutdown: %v", err)
+		}
+
+		// Give it some time to flush coverage data
+		done := make(chan error)
+		go func() {
+			done <- cmd.Wait()
+		}()
+
+		// Wait up to 5 seconds for graceful shutdown
+		select {
+		case <-time.After(10 * time.Second):
+			t.Log("Process didn't exit gracefully, forcing kill")
+			cmd.Process.Kill()
+		case err := <-done:
+			t.Logf("Process exited with: %v", err)
+		}
+	})
+
+	// TODO: Need this?
+	go func() {
+		for {
+			buf := make([]byte, 100)
+			serverStdout.Read(buf)
+		}
+	}()
+
+	// Send client messages to lspwatch.
+	for _, message := range messages {
+		_, err = serverStdin.Write([]byte(message))
+		if err != nil {
+			t.Fatalf("failed to write message to lspwatch stdin: %v", err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Logf("Sent %d messages", len(messages))
+	t.Log("Waiting...")
+
+	// Wait for the language server to send all its messages and for the exporter to flush.
+	time.Sleep(13 * time.Second)
+
+	// Inspect the otel collector export for metrics
+	assertExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
 }
 
 func assertExporterOTelMetrics(t *testing.T, otelFilePath string) {

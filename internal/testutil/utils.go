@@ -1,9 +1,12 @@
 package testutil
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -52,7 +55,8 @@ func AssertDoesNotExitBefore(t *testing.T, desc string, fn func(), timeout time.
 }
 
 // TODO: Maybe this can just return the exec.Cmd object instead of accepting a function.
-func RunIntegrationTest(t *testing.T, args []string, fn func(cmd *exec.Cmd)) {
+func PrepareIntegrationTest(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
 	lspwatchBinary := os.Getenv("LSPWATCH_BIN")
 	if lspwatchBinary == "" {
 		t.Fatalf("LSPWATCH_BIN is not set")
@@ -72,5 +76,12 @@ func RunIntegrationTest(t *testing.T, args []string, fn func(cmd *exec.Cmd)) {
 	t.Logf("Sending coverage data to: %s", coverageDir)
 	cmd.Env = append(os.Environ(), coverPath)
 
-	fn(cmd)
+	return cmd
+}
+
+func GenerateRandomLogDirName() string {
+	randomBytes := make([]byte, 16)
+	rand.Read(randomBytes)
+	strBytes := hex.EncodeToString(randomBytes)
+	return filepath.Join(os.TempDir(), fmt.Sprintf("lspwatch-%s", strBytes))
 }

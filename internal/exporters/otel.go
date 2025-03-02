@@ -219,7 +219,7 @@ func (e *loggingExporter) Shutdown(ctx context.Context) error {
 }
 
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, enableLogging bool) (*MetricsOTelExporter, error) {
+func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logDir string) (*MetricsOTelExporter, error) {
 	var err error
 	var metricExporter sdkmetric.Exporter
 	switch cfg.Protocol {
@@ -240,7 +240,7 @@ func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, enableLogging bool)
 		return nil, err
 	}
 
-	logger, _, err := io.CreateLogger("otel.log", enableLogging)
+	logger, _, err := io.CreateLogger(logDir, "otel.log")
 	if err != nil {
 		return nil, fmt.Errorf("error creating otel logger: %v", err)
 	}

@@ -16,7 +16,7 @@ func TestNewMetricsExporter(t *testing.T) {
 			},
 		}
 
-		_, err := newMetricsExporter(cfg, false)
+		_, err := newMetricsExporter(cfg, "")
 		if err != nil {
 			t.Fatalf("expected no error creating Datadog exporter, but got: %v", err)
 		}
@@ -32,7 +32,7 @@ func TestNewMetricsExporter(t *testing.T) {
 			},
 		}
 
-		_, err := newMetricsExporter(cfg, false)
+		_, err := newMetricsExporter(cfg, "")
 		if err != nil {
 			t.Fatalf("expected no error creating OpenTelemetry exporter, but got: %v", err)
 		}
@@ -43,7 +43,7 @@ func TestNewMetricsExporter(t *testing.T) {
 			Exporter: "invalid",
 		}
 
-		_, err := newMetricsExporter(cfg, false)
+		_, err := newMetricsExporter(cfg, "")
 		if err == nil {
 			t.Fatalf("expected error creating invalid exporter, but got nil")
 		}

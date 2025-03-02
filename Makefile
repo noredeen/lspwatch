@@ -77,8 +77,8 @@ stop-otel-collector:
 .PHONY: tear-down-test-dependencies
 tear-down-test-dependencies: stop-otel-collector
 
-.PHONY: integration-tests
-integration-tests:
+.PHONY: run-integration-tests
+run-integration-tests:
 	@echo "Running integration tests..."
 	mkdir -p $(COVERAGE_DIR)/int
 	TEST_DATA_DIR=$(TEST_DATA_DIR) \
@@ -86,8 +86,8 @@ integration-tests:
 	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
 	go test $(INTEGRATION_TEST_DIR)/... -v -cover -covermode=atomic
 
-.PHONY: ci-integration-tests
-ci-integration-tests: build-test build-integration-runnables integration-tests
+.PHONY: integration-tests
+integration-tests: build-test build-integration-runnables run-integration-tests
 
 .PHONY: combine-coverage
 combine-coverage:

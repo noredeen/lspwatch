@@ -167,15 +167,15 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 func NewLspwatchInstance(
 	serverShellCommand string,
 	args []string,
-	cfgFilePath string,
-	enableLogging bool,
+	configFilePath string,
+	logDir string,
 ) (LspwatchInstance, error) {
-	logger, logFile, err := lspwatch_io.CreateLogger("lspwatch.log", enableLogging)
+	logger, logFile, err := lspwatch_io.CreateLogger(logDir, "lspwatch.log")
 	if err != nil {
 		return LspwatchInstance{}, fmt.Errorf("error creating logger: %v", err)
 	}
 
-	cfg, err := getConfig(cfgFilePath)
+	cfg, err := getConfig(configFilePath)
 	if err != nil {
 		return LspwatchInstance{}, fmt.Errorf("error getting lspwatch config: %v", err)
 	}
@@ -199,8 +199,7 @@ func NewLspwatchInstance(
 		logger.Fatalf("error creating pipe to server's stdin: %v", err)
 	}
 
-	// TODO: Take args[1:]
-	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args)
+	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args[1:])
 	err = serverCmd.Start()
 	if err != nil {
 		logger.Fatalf("error starting language server process: %v", err)
@@ -208,7 +207,7 @@ func NewLspwatchInstance(
 
 	logger.Infof("launched language server process (PID=%v)", serverCmd.Process.Pid)
 
-	exporter, err := newMetricsExporter(cfg, enableLogging)
+	exporter, err := newMetricsExporter(cfg, logDir)
 	if err != nil {
 		logger.Fatalf("error creating metrics exporter: %v", err)
 	}
@@ -346,13 +345,13 @@ func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 
 func newMetricsExporter(
 	cfg config.LspwatchConfig,
-	enableLogging bool,
+	logDir string,
 ) (telemetry.MetricsExporter, error) {
 	var exporter telemetry.MetricsExporter
 
 	switch cfg.Exporter {
 	case "opentelemetry":
-		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry, enableLogging)
+		otelExporter, err := exporters.NewMetricsOTelExporter(cfg.OpenTelemetry, logDir)
 		if err != nil {
 			return nil, fmt.Errorf("error creating OpenTelemetry exporter: %v", err)
 		}
@@ -362,7 +361,7 @@ func newMetricsExporter(
 		datadogExporter, err := exporters.NewDatadogMetricsExporter(
 			datadogCtx,
 			cfg.Datadog,
-			enableLogging,
+			logDir,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error creating Datadog exporter: %v", err)

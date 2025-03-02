@@ -14,21 +14,23 @@ import (
 // - [ ] make request buffer thread-safe?
 // - [ ] better log file management
 
-var cfgFilePath string
-var enableLogging bool
+var configFilePath string
+var logDir string
 var rootCmd = &cobra.Command{
 	Use:   "lspwatch",
 	Short: "lspwatch provides observability for LSP-compliant language servers over stdin/stdout",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		var serverArgs []string
-		if len(args) > 1 {
-			serverArgs = args[1:]
-		} else {
-			serverArgs = []string{}
-		}
+		// var serverArgs []string
+		// if len(args) > 1 {
+		// 	serverArgs = args[1:]
+		// } else {
+		// 	serverArgs = []string{}
+		// }
 
-		lspwatchInstance, err := internal.NewLspwatchInstance(args[0], serverArgs, cfgFilePath, enableLogging)
+		serverArgs := args[1:]
+
+		lspwatchInstance, err := internal.NewLspwatchInstance(args[0], serverArgs, configFilePath, logDir)
 
 		if err != nil {
 			fmt.Printf("error setting up lspwatch: %v\n", err)
@@ -47,6 +49,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&cfgFilePath, "config", "", "path to config file for lspwatch")
-	rootCmd.PersistentFlags().BoolVar(&enableLogging, "log", false, "enable logging to file")
+	rootCmd.PersistentFlags().StringVar(&configFilePath, "config", "", "path to config file for lspwatch")
+	rootCmd.PersistentFlags().StringVar(&logDir, "logdir", "", "path to log directory for lspwatch")
 }
