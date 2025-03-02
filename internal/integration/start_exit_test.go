@@ -77,7 +77,7 @@ func TestUnresponsiveServerProcess(t *testing.T) {
 	t.Parallel()
 	testutil.RunIntegrationTest(
 		t,
-		[]string{"--log", "--", "cat"},
+		[]string{"--log", "--", "./build/unresponsive_server"},
 		func(cmd *exec.Cmd) {
 			serverStdin, err := cmd.StdinPipe()
 			if err != nil {
