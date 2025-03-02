@@ -34,25 +34,49 @@ func TestInvalidCommand(t *testing.T) {
 }
 
 func TestBadConfigFile(t *testing.T) {
-	t.Parallel()
-	testutil.RunIntegrationTest(
-		t,
-		[]string{"--config", "/dev/null", "--", "some_command"},
-		func(cmd *exec.Cmd) {
-			err := cmd.Start()
-			if err != nil {
-				t.Fatalf("error starting lspwatch: %v", err)
-			}
+	t.Run("unreadable config file", func(t *testing.T) {
+		t.Parallel()
+		testutil.RunIntegrationTest(
+			t,
+			[]string{"--config", "/dev/null", "--", "some_command"},
+			func(cmd *exec.Cmd) {
+				err := cmd.Start()
+				if err != nil {
+					t.Fatalf("error starting lspwatch: %v", err)
+				}
 
-			testutil.AssertExitsBefore(t, "lspwatch", func() {
-				cmd.Process.Wait()
-			}, 3*time.Second)
+				testutil.AssertExitsBefore(t, "lspwatch", func() {
+					cmd.Process.Wait()
+				}, 3*time.Second)
 
-			if cmd.ProcessState.ExitCode() == 0 {
-				t.Error("expected non-zero exit code")
-			}
-		},
-	)
+				if cmd.ProcessState.ExitCode() == 0 {
+					t.Error("expected non-zero exit code")
+				}
+			},
+		)
+	})
+
+	t.Run("nonexistent env file", func(t *testing.T) {
+		t.Parallel()
+		testutil.RunIntegrationTest(
+			t,
+			[]string{"--log", "--config", "./config/bad_env_lspwatch.yaml", "--", "some_command"},
+			func(cmd *exec.Cmd) {
+				err := cmd.Start()
+				if err != nil {
+					t.Fatalf("error starting lspwatch: %v", err)
+				}
+
+				testutil.AssertExitsBefore(t, "lspwatch", func() {
+					cmd.Process.Wait()
+				}, 3*time.Second)
+
+				if cmd.ProcessState.ExitCode() == 0 {
+					t.Error("expected non-zero exit code")
+				}
+			},
+		)
+	})
 }
 
 func TestServerProcessDiesAbruptly(t *testing.T) {
@@ -77,7 +101,7 @@ func TestUnresponsiveServerProcess(t *testing.T) {
 	t.Parallel()
 	testutil.RunIntegrationTest(
 		t,
-		[]string{"--log", "--", "./build/unresponsive_server"},
+		[]string{"--", "./build/unresponsive_server"},
 		func(cmd *exec.Cmd) {
 			serverStdin, err := cmd.StdinPipe()
 			if err != nil {

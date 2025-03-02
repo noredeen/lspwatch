@@ -1,0 +1,10 @@
+exporter: datadog
+env_file: /path/to/nonexistent/file
+tags:
+  - os
+  - language_server
+  - ram
+  - user
+datadog:
+  client_api_key_env_var: API_KEY
+  client_app_key_env_var: APP_KEY
