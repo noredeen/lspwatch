@@ -1,13 +1,16 @@
 package integration
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/noredeen/lspwatch/internal/testutil"
 )
 
-// TODO: Proper test cleanup.
+// TODO: Proper test cleanup (for when tests fail and lspwatch doesn't shut down cleanly).
 
 func TestInvalidCommand(t *testing.T) {
 	t.Parallel()
@@ -98,6 +101,18 @@ func TestServerProcessDiesAbruptly(t *testing.T) {
 	testutil.AssertExitsBefore(t, "lspwatch", func() {
 		cmd.Process.Wait()
 	}, 15*time.Second)
+
+	time.Sleep(2 * time.Second)
+
+	fileBytes, err := os.ReadFile(filepath.Join(logDir, "lspwatch.log"))
+	if err != nil {
+		t.Fatalf("error reading lspwatch.log: %v", err)
+	}
+
+	ok := bytes.Contains(fileBytes, []byte("language server process exited"))
+	if !ok {
+		t.Fatalf("expected log message 'language server process exited' not found in lspwatch.log")
+	}
 }
 
 func TestUnresponsiveServerProcess(t *testing.T) {
@@ -131,12 +146,28 @@ func TestUnresponsiveServerProcess(t *testing.T) {
 	exitRequest := []byte("Content-Length: 33\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
 	_, err = serverStdin.Write(exitRequest)
 	if err != nil {
-		t.Fatalf("failed to write exit request: %v", err)
+		t.Fatalf("error writing exit request: %v", err)
 	}
 
 	testutil.AssertExitsBefore(t, "lspwatch", func() {
 		cmd.Process.Wait()
 	}, 15*time.Second)
 
-	// TODO: MUST CHECK THE LOGS AS PART OF THE TEST.
+	// Wait for logs to flush.
+	time.Sleep(1 * time.Second)
+
+	fileBytes, err := os.ReadFile(filepath.Join(logDir, "lspwatch.log"))
+	if err != nil {
+		t.Fatalf("error reading lspwatch.log: %v", err)
+	}
+
+	ok := bytes.Contains(fileBytes, []byte("received exit request from client"))
+	if !ok {
+		t.Fatalf("expected log message 'received exit request from client' not found in lspwatch.log")
+	}
+
+	ok = bytes.Contains(fileBytes, []byte("organic language server shutdown failed. forcing with SIGKILL..."))
+	if !ok {
+		t.Fatalf("expected log message 'organic language server shutdown failed. forcing with SIGKILL...' not found in lspwatch.log")
+	}
 }

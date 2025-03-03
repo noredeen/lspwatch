@@ -54,7 +54,6 @@ func AssertDoesNotExitBefore(t *testing.T, desc string, fn func(), timeout time.
 	}
 }
 
-// TODO: Maybe this can just return the exec.Cmd object instead of accepting a function.
 func PrepareIntegrationTest(t *testing.T, args ...string) *exec.Cmd {
 	t.Helper()
 	lspwatchBinary := os.Getenv("LSPWATCH_BIN")
