@@ -288,7 +288,6 @@ func NewLspwatchInstance(
 	}, nil
 }
 
-// TODO: Unit tests.
 func getTagValues(
 	cfg *config.LspwatchConfig,
 	tagGetters map[telemetry.AvailableTag]func() telemetry.TagValue,
@@ -324,7 +323,6 @@ func getConfig(path string) (config.LspwatchConfig, error) {
 	return cfg, nil
 }
 
-// TODO: Integration test.
 func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)

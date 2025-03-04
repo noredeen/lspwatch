@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/noredeen/lspwatch/internal/config"
+	"github.com/noredeen/lspwatch/internal/telemetry"
 )
 
 func TestNewMetricsExporter(t *testing.T) {
@@ -46,6 +47,26 @@ func TestNewMetricsExporter(t *testing.T) {
 		_, err := newMetricsExporter(cfg, "")
 		if err == nil {
 			t.Fatalf("expected error creating invalid exporter, but got nil")
+		}
+	})
+}
+
+func TestGetTagValues(t *testing.T) {
+	t.Run("invalid tag", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.LspwatchConfig{
+			Tags: []string{"invalid"},
+		}
+
+		tagGetters := map[telemetry.AvailableTag]func() telemetry.TagValue{
+			telemetry.LanguageServer: func() telemetry.TagValue {
+				return telemetry.TagValue("server1")
+			},
+		}
+
+		_, err := getTagValues(&cfg, tagGetters)
+		if err == nil {
+			t.Errorf("expected error getting tag values, but got nil")
 		}
 	})
 }
