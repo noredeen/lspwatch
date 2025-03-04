@@ -12,7 +12,6 @@ import (
 // TODO:
 // - [ ] units in datadog exporter
 // - [ ] make request buffer thread-safe?
-// - [ ] better log file management
 
 var configFilePath string
 var logDir string
@@ -21,14 +20,12 @@ var rootCmd = &cobra.Command{
 	Short: "lspwatch provides observability for LSP-compliant language servers over stdin/stdout",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// var serverArgs []string
-		// if len(args) > 1 {
-		// 	serverArgs = args[1:]
-		// } else {
-		// 	serverArgs = []string{}
-		// }
-
-		serverArgs := args[1:]
+		var serverArgs []string
+		if len(args) > 1 {
+			serverArgs = args[1:]
+		} else {
+			serverArgs = []string{}
+		}
 
 		lspwatchInstance, err := internal.NewLspwatchInstance(args[0], serverArgs, configFilePath, logDir)
 
