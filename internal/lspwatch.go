@@ -183,7 +183,7 @@ func NewLspwatchInstance(
 	if cfg.EnvFilePath != "" {
 		err = godotenv.Load(cfg.EnvFilePath)
 		if err != nil {
-			logger.Fatalf("error loading .env file: %v", err)
+			return LspwatchInstance{}, fmt.Errorf("error loading .env file: %v", err)
 		}
 	}
 
@@ -191,25 +191,25 @@ func NewLspwatchInstance(
 
 	serverStdoutPipe, err := serverCmd.StdoutPipe()
 	if err != nil {
-		logger.Fatalf("error creating pipe to server's stdout: %v", err)
+		return LspwatchInstance{}, fmt.Errorf("error creating pipe to server's stdout: %v", err)
 	}
 
 	serverStdinPipe, err := serverCmd.StdinPipe()
 	if err != nil {
-		logger.Fatalf("error creating pipe to server's stdin: %v", err)
+		return LspwatchInstance{}, fmt.Errorf("error creating pipe to server's stdin: %v", err)
 	}
 
 	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args[1:])
 	err = serverCmd.Start()
 	if err != nil {
-		logger.Fatalf("error starting language server process: %v", err)
+		return LspwatchInstance{}, fmt.Errorf("error starting language server process: %v", err)
 	}
 
 	logger.Infof("launched language server process (PID=%v)", serverCmd.Process.Pid)
 
 	exporter, err := newMetricsExporter(cfg, logDir)
 	if err != nil {
-		logger.Fatalf("error creating metrics exporter: %v", err)
+		return LspwatchInstance{}, fmt.Errorf("error creating metrics exporter: %v", err)
 	}
 
 	tagGetters := map[telemetry.AvailableTag]func() telemetry.TagValue{
@@ -241,7 +241,7 @@ func NewLspwatchInstance(
 
 	tags, err := getTagValues(&cfg, tagGetters)
 	if err != nil {
-		logger.Fatalf("error getting tag values: %v", err)
+		return LspwatchInstance{}, fmt.Errorf("error getting tag values: %v", err)
 	}
 	exporter.SetGlobalTags(tags...)
 
@@ -256,13 +256,13 @@ func NewLspwatchInstance(
 		logger,
 	)
 	if err != nil {
-		logger.Fatalf("error initializing LSP request handler: %v", err)
+		return LspwatchInstance{}, fmt.Errorf("error initializing LSP request handler: %v", err)
 	}
 
 	processHandle := serverCmd.Process
 	processInfo, err := process.NewProcess(int32(processHandle.Pid))
 	if err != nil {
-		logger.Fatalf("error creating process info: %v", err)
+		return LspwatchInstance{}, fmt.Errorf("error creating process info: %v", err)
 	}
 
 	serverMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableServerMetrics)
