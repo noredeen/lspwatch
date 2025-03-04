@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/noredeen/lspwatch/internal/config"
@@ -281,12 +282,7 @@ func newTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 
 // TODO: File rotation.
 func newFileExporter(cfg *config.OpenTelemetryConfig) (*fileExporter, error) {
-	path := cfg.Directory
-
-	if path[len(path)-1] != '/' {
-		path += "/"
-	}
-	path += "lspwatch_metrics.json"
+	path := filepath.Join(cfg.Directory, "lspwatch_metrics.json")
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
