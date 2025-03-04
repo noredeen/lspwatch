@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/textproto"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/sirupsen/logrus"
@@ -166,11 +167,36 @@ func NewHeaderCaptureReader(reader io.ReadCloser) HeaderCaptureReader {
 	return HeaderCaptureReader{reader: reader, reading: true}
 }
 
-func CreateLogger(filePath string, enabled bool) (*logrus.Logger, *os.File, error) {
+func NewLSPMessageReader(reader io.ReadCloser) LSPMessageReader {
+	headerCaptureReader := NewHeaderCaptureReader(reader)
+	return LSPMessageReader{
+		headerCaptureReader: &headerCaptureReader,
+		bufReader:           bufio.NewReader(&headerCaptureReader),
+	}
+}
+
+// If logDir is not an empty string, CreateLogger will create a new file inside logDir
+// (creating the directory if it doesn't exist) and set that as the logger's output.
+//
+// TODO: Write some integration tests for this.
+func CreateLogger(logDir string, fileName string) (*logrus.Logger, *os.File, error) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 
-	if enabled {
+	if logDir != "" {
+		dirExists, err := checkDir(logDir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error checking log directory: %v", err)
+		}
+
+		if !dirExists {
+			err = os.MkdirAll(logDir, 0755)
+			if err != nil {
+				return nil, nil, fmt.Errorf("error creating log directory: %v", err)
+			}
+		}
+
+		filePath := filepath.Join(logDir, fileName)
 		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error creating log file: %v", err)
@@ -182,10 +208,13 @@ func CreateLogger(filePath string, enabled bool) (*logrus.Logger, *os.File, erro
 	return logger, nil, nil
 }
 
-func NewLSPMessageReader(reader io.ReadCloser) LSPMessageReader {
-	headerCaptureReader := NewHeaderCaptureReader(reader)
-	return LSPMessageReader{
-		headerCaptureReader: &headerCaptureReader,
-		bufReader:           bufio.NewReader(&headerCaptureReader),
+func checkDir(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
+	return info.IsDir(), nil
 }

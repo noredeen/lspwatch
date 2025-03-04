@@ -46,7 +46,7 @@ jobs:
         run: make unit-tests
 
       - name: Run integration tests
-        run: make ci-integration-tests
+        run: make integration-tests
 
       - name: Combine coverage data into a profile
         run: make combine-coverage

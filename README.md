@@ -50,7 +50,7 @@ r binary (e.g `clangd`).
 
 ## Why?
 
-If you work on a sufficiently complex typed codebase, you'll find that language support features within modern editors like code completion, diagnostics, suggestions, etc. can become considerably slow. Much of the universally-hated sluggishness of code editors is due in large part to these advanced language features. To provide codebase-wide awarness, editors rely on language servers to provide answers to code queries by scanning the codebase and maintaining internal state representations.
+If you work on a sufficiently complex typed codebase, you'll find that language support features within modern editors like code completion, diagnostics, suggestions, etc. can become considerably slow. Much of the universally hated sluggishness of code editors is due in large part to these advanced language features. To provide codebase-wide awarness, editors rely on language servers to provide answers to code queries by scanning the codebase and maintaining internal state representations.
 
 To quantify this sluggishness, we can monitor how editors interact with language servers. The duration of an LSP request can tell us how responsive an editor feels. More specifically, this metric can tell us how much (likely idle) time the developer spends waiting for their editor to respond to their edit.
 

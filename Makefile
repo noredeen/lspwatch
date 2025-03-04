@@ -3,6 +3,8 @@ VERSION := $(shell git describe --tags --always)
 BUILD_DIR := build
 TEST_DATA_DIR := testdata
 COVERAGE_DIR := coverage
+INTEGRATION_TEST_DIR := ./internal/integration
+UNIT_TEST_DIRS := $(shell go list ./... | grep -v $(INTEGRATION_TEST_DIR))
 
 OTEL_EXPORTS_DIR := /tmp/file-exporter
 CONTAINER_ID_FILE := /tmp/$(APP_NAME)-test-container-id
@@ -23,7 +25,7 @@ run: build
 unit-tests:
 	@echo "Running unit tests..."
 	mkdir -p $(COVERAGE_DIR)/unit
-	go test -v -cover -covermode=atomic ./... -args -test.gocoverdir="$(PWD)/$(COVERAGE_DIR)/unit"
+	go test -v -cover -covermode=atomic $(UNIT_TEST_DIRS) -args -test.gocoverdir="$(PWD)/$(COVERAGE_DIR)/unit"
 
 .PHONY: fmt
 fmt:
@@ -48,7 +50,7 @@ clean-coverage:
 .PHONY: clean-integration-runnables
 clean-integration-runnables:
 	@echo "Cleaning up integration test runnables..."
-	@rm -rf ./integration/$(BUILD_DIR)
+	@rm -rf $(INTEGRATION_TEST_DIR)/$(BUILD_DIR)
 
 .PHONY: deps
 deps:
@@ -63,7 +65,7 @@ build-test: clean
 .PHONY: build-integration-runnables
 build-integration-runnables: clean-integration-runnables
 	@echo "Building integration runnables..."
-	go build -C integration -o $(BUILD_DIR)/ ./cmd/...
+	go build -C $(INTEGRATION_TEST_DIR) -o $(BUILD_DIR)/ ./cmd/...
 
 .PHONY: stop-otel-collector
 stop-otel-collector:
@@ -75,17 +77,17 @@ stop-otel-collector:
 .PHONY: tear-down-test-dependencies
 tear-down-test-dependencies: stop-otel-collector
 
-.PHONY: integration-tests
-integration-tests:
+.PHONY: run-integration-tests
+run-integration-tests:
 	@echo "Running integration tests..."
 	mkdir -p $(COVERAGE_DIR)/int
 	TEST_DATA_DIR=$(TEST_DATA_DIR) \
 	LSPWATCH_BIN=$(PWD)/$(BUILD_DIR)/$(APP_NAME)_cov \
 	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
-	go -C integration test -v -cover -covermode=atomic
+	go test $(INTEGRATION_TEST_DIR)/... -v -cover -covermode=atomic
 
-.PHONY: ci-integration-tests
-ci-integration-tests: build-test build-integration-runnables integration-tests
+.PHONY: integration-tests
+integration-tests: build-test build-integration-runnables run-integration-tests
 
 .PHONY: combine-coverage
 combine-coverage:

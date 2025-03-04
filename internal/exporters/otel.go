@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/noredeen/lspwatch/internal/config"
@@ -219,7 +220,7 @@ func (e *loggingExporter) Shutdown(ctx context.Context) error {
 }
 
 // https://opentelemetry.io/docs/languages/go/getting-started/#initialize-the-opentelemetry-sdk
-func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, enableLogging bool) (*MetricsOTelExporter, error) {
+func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logDir string) (*MetricsOTelExporter, error) {
 	var err error
 	var metricExporter sdkmetric.Exporter
 	switch cfg.Protocol {
@@ -240,7 +241,7 @@ func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, enableLogging bool)
 		return nil, err
 	}
 
-	logger, _, err := io.CreateLogger("otel.log", enableLogging)
+	logger, _, err := io.CreateLogger(logDir, "otel.log")
 	if err != nil {
 		return nil, fmt.Errorf("error creating otel logger: %v", err)
 	}
@@ -281,12 +282,7 @@ func newTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 
 // TODO: File rotation.
 func newFileExporter(cfg *config.OpenTelemetryConfig) (*fileExporter, error) {
-	path := cfg.Directory
-
-	if path[len(path)-1] != '/' {
-		path += "/"
-	}
-	path += "lspwatch_metrics.json"
+	path := filepath.Join(cfg.Directory, "lspwatch_metrics.json")
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

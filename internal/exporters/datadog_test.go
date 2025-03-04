@@ -263,7 +263,7 @@ func TestNewDatadogMetricsExporter(t *testing.T) {
 		}
 
 		datadogCtx := GetDatadogContext(cfg)
-		exporter, err := NewDatadogMetricsExporter(datadogCtx, cfg, false)
+		exporter, err := NewDatadogMetricsExporter(datadogCtx, cfg, "")
 		if err != nil {
 			t.Fatalf("expected NewDatadogMetricsExporter not to return an error, got: %v", err)
 		}
@@ -288,7 +288,7 @@ func TestNewDatadogMetricsExporter(t *testing.T) {
 		}
 
 		datadogCtx := GetDatadogContext(cfg)
-		exporter, err := NewDatadogMetricsExporter(datadogCtx, cfg, false)
+		exporter, err := NewDatadogMetricsExporter(datadogCtx, cfg, "")
 		if err != nil {
 			t.Fatalf("expected NewDatadogMetricsExporter not to return an error, got: %v", err)
 		}

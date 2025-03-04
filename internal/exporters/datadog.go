@@ -188,9 +188,9 @@ func (dme *DatadogMetricsExporter) runMetricsBatchHandler() {
 func NewDatadogMetricsExporter(
 	datadogCtx context.Context,
 	cfg *config.DatadogConfig,
-	enableLogging bool,
+	logDir string,
 ) (*DatadogMetricsExporter, error) {
-	logger, logFile, err := io.CreateLogger("datadog.log", enableLogging)
+	logger, logFile, err := io.CreateLogger(logDir, "datadog.log")
 	if err != nil {
 		return nil, fmt.Errorf("error creating datadog logger: %v", err)
 	}

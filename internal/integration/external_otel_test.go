@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/noredeen/lspwatch/internal/testutil"
 )
 
 // Test flow:
@@ -123,35 +123,14 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 }
 
 func runTest(t *testing.T, configFile string, otelExportsDir string, messages []string) {
-	testDataDir := os.Getenv("TEST_DATA_DIR")
-	if testDataDir == "" {
-		t.Fatalf("TEST_DATA_DIR is not set")
-	}
-
-	lspwatchBinary := os.Getenv("LSPWATCH_BIN")
-	if lspwatchBinary == "" {
-		t.Fatalf("LSPWATCH_BIN is not set")
-	}
-
-	coverageDir := os.Getenv("COVERAGE_DIR")
-	if coverageDir == "" {
-		t.Fatalf("COVERAGE_DIR is not set")
-	}
-
-	t.Logf("Starting lspwatch binary '%s'", lspwatchBinary)
-
-	// Launch lspwatch process.
-	cmd := exec.Command(
-		lspwatchBinary,
+	t.Helper()
+	cmd := testutil.PrepareIntegrationTest(
+		t,
 		"--config",
 		configFile,
 		"--",
 		"./build/mock_language_server",
 	)
-
-	coverPath := fmt.Sprintf("GOCOVERDIR=%s", coverageDir)
-	t.Logf("Sending coverage data to: %s", coverageDir)
-	cmd.Env = append(os.Environ(), coverPath)
 
 	serverStdin, err := cmd.StdinPipe()
 	if err != nil {

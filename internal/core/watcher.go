@@ -21,11 +21,13 @@ type ProcessInfo interface {
 }
 
 type ProcessWatcher struct {
-	metricsRegistry   telemetry.MetricsRegistry
-	processHandle     ProcessHandle
-	processInfo       ProcessInfo
-	pollingInterval   time.Duration
-	processExited     bool
+	metricsRegistry telemetry.MetricsRegistry
+	processHandle   ProcessHandle
+	processInfo     ProcessInfo
+	pollingInterval time.Duration
+	processExited   bool
+
+	// TODO Change to a channel of int (exit code)
 	processExitedChan chan error
 	incomingShutdown  chan struct{}
 	logger            *logrus.Logger
