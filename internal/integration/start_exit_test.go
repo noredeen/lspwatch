@@ -33,6 +33,7 @@ func TestInvalidCommand(t *testing.T) {
 }
 
 func TestBadConfigFile(t *testing.T) {
+	// TODO: Check logs.
 	t.Run("unreadable config file", func(t *testing.T) {
 		t.Parallel()
 		logDir := testutil.GenerateRandomLogDirName()
@@ -60,6 +61,7 @@ func TestBadConfigFile(t *testing.T) {
 		}
 	})
 
+	// TODO: Check logs.
 	t.Run("nonexistent env file", func(t *testing.T) {
 		t.Parallel()
 		logDir := testutil.GenerateRandomLogDirName()
@@ -91,7 +93,16 @@ func TestBadConfigFile(t *testing.T) {
 func TestServerProcessDiesAbruptly(t *testing.T) {
 	t.Parallel()
 	logDir := testutil.GenerateRandomLogDirName()
-	cmd := testutil.PrepareIntegrationTest(t, "--logdir", logDir, "--", "sleep", "5")
+	cmd := testutil.PrepareIntegrationTest(
+		t,
+		"--logdir",
+		logDir,
+		"--mode",
+		"proxy",
+		"--",
+		"sleep",
+		"5",
+	)
 
 	err := cmd.Start()
 	if err != nil {
@@ -118,7 +129,14 @@ func TestServerProcessDiesAbruptly(t *testing.T) {
 func TestUnresponsiveServerProcess(t *testing.T) {
 	t.Parallel()
 	logDir := testutil.GenerateRandomLogDirName()
-	cmd := testutil.PrepareIntegrationTest(t, "--logdir", logDir, "--", "./build/unresponsive_server")
+	cmd := testutil.PrepareIntegrationTest(t,
+		"--logdir",
+		logDir,
+		"--mode",
+		"proxy",
+		"--",
+		"./build/unresponsive_server",
+	)
 
 	serverStdin, err := cmd.StdinPipe()
 	if err != nil {

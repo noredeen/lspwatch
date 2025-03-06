@@ -69,11 +69,42 @@ TODO
 
 ## Usage
 
-`lspwatch` is an executable that stands in place of the language server. If your language server is invoked using e.g `clangd ...`, then you can run `lspwatch -- clangd ...`.
+`lspwatch` is an executable that transparently stands in place of the language server. `lspwatch` operates in 2 one of two modes:
 
-Every editor that supports LSP will have a way to configure the  command used to invoke the language server. Reference the documenation of your editor or language extension for details.
+1. **`command` mode**: For running one-time language server queries like `gopls stats`, where the command exits after returning results. Editors often use such queries to gather static metadata.
+2. **`proxy` mode**: For long-running language server sessions where LSP messages are continuously exchanged. This is the  typical usage of the language server.
 
-TODO: Show examples.
+`lspwatch` will automatically choose the correct mode, but you can also specify it using the `--mode` flag (e.g `lspwatch --mode command -- gopls stats`).
+
+Generally, to use `lpswatch` for instrumenting your language server, you will need to replace the command your code editor invokes when running the language server. For example, instead of running `gopls <args>`, your editor should run `lspwatch -- gopls <args>`. Most LSP-equipped editors will have a way to configure this. Some examples are included below, but reference the documentation of your editor or language extension for instructions.
+
+<details>
+<summary><b>(Golang) Neovim + <code>nvim-lspconfig</code></b></summary>
+<br/>
+
+`/path/to/instrumented_gopls`:
+```bash
+#!/bin/bash
+lspwatch -- gopls "$@"
+```
+
+`init.lua`:
+```lua
+gopls = {
+  cmd = {
+    "/path/to/instrumented_gopls"
+  }
+}
+```
+</details>
+
+<br/>
+
+<details>
+<summary><b>(Golang) VSCode + vscode-go</code></b></summary>
+<br/>
+TODO
+</details>
 
 ## Configuration
 

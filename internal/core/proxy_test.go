@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,7 @@ type mockProxyMetricsRegistry struct {
 	emitMetricCalls   []telemetry.MetricRecording
 	mu                sync.Mutex
 }
+
 type erroringMetricsRegistry struct {
 	errorEnableMetric bool
 	errorEmitMetric   bool
@@ -66,7 +68,7 @@ func TestNewProxyHandler(t *testing.T) {
 	t.Run("creates a default handler when no configured metrics or metered requests", func(t *testing.T) {
 		t.Parallel()
 		metricsRegistry := mockProxyMetricsRegistry{}
-		proxyHandler, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, nil)
+		proxyHandler, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, "proxy", nil)
 		if err != nil {
 			t.Fatalf("expected no error creating proxy handler, got '%v'", err)
 		}
@@ -93,7 +95,7 @@ func TestNewProxyHandler(t *testing.T) {
 		}
 
 		metricsRegistry := mockProxyMetricsRegistry{}
-		proxyHandler, err := NewProxyHandler(cfg, &metricsRegistry, nil, nil, nil, nil, nil)
+		proxyHandler, err := NewProxyHandler(cfg, &metricsRegistry, nil, nil, nil, nil, "proxy", nil)
 		if err != nil {
 			t.Fatalf("expected no error creating proxy handler, got '%v'", err)
 		}
@@ -113,7 +115,7 @@ func TestNewProxyHandler(t *testing.T) {
 		metricsRegistry := erroringMetricsRegistry{
 			errorEnableMetric: true,
 		}
-		_, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, nil)
+		_, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, "proxy", nil)
 		if err == nil {
 			t.Fatalf("expected error creating proxy handler, got nil")
 		}
@@ -350,7 +352,13 @@ func TestProxyHandler(t *testing.T) {
 		t.Parallel()
 		metricsRegistry := mockProxyMetricsRegistry{}
 		logger := logrus.New()
-		logger.SetOutput(io.Discard)
+		file, err := os.OpenFile("test.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			t.Fatalf("expected no error creating test log file, got '%v'", err)
+		}
+		defer file.Close()
+
+		logger.SetOutput(file)
 		proxyHandler, proxyToClient, proxyToServer, clientToProxy, serverToProxy := setUpTest(t, &metricsRegistry, logger)
 		t.Cleanup(func() {
 			err := proxyHandler.Shutdown()
@@ -378,18 +386,18 @@ func TestProxyHandler(t *testing.T) {
 
 		// TODO: Probably a better idea to use a message queue for writing.
 
-		// Erroneous server response to unbuffered request.
-		msgFromServer = "Content-Length: 41\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"result\": []}"
-		sendMessage(t, serverToProxy, msgFromServer)
-		buf = make([]byte, len(msgFromServer)+100)
-		proxyToClient.Read(buf)
-
-		time.Sleep(500 * time.Millisecond)
-
 		msgFromClient = "Content-Length: 128\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"textDocument/references\", \"params\": {\"textDocument\": {\"uri\": \"file:///path/to/file.ts\"}}}"
 		sendMessage(t, clientToProxy, msgFromClient)
 		buf = make([]byte, len(msgFromClient)+100)
 		proxyToServer.Read(buf)
+
+		time.Sleep(500 * time.Millisecond)
+
+		// Erroneous server response to unbuffered request.
+		msgFromServer = "Content-Length: 42\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 44, \"result\": []}"
+		sendMessage(t, serverToProxy, msgFromServer)
+		buf = make([]byte, len(msgFromServer)+100)
+		proxyToClient.Read(buf)
 
 		time.Sleep(500 * time.Millisecond)
 
@@ -456,6 +464,7 @@ func setUpTest(t *testing.T, metricsRegistry telemetry.MetricsRegistry, logger *
 		clientOut,
 		serverIn,
 		serverOut,
+		"proxy",
 		logger,
 	)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -22,18 +23,35 @@ type RequestBookmark struct {
 }
 
 type ProxyHandler struct {
-	meteredRequests    map[string]struct{}
-	metricsRegistry    telemetry.MetricsRegistry
-	requestBuffer      *orderedmap.OrderedMap[string, RequestBookmark]
-	inputFromClient    io.ReadCloser
-	outputToClient     io.WriteCloser
-	inputFromServer    io.ReadCloser
-	outputToServer     io.WriteCloser
+	// Metrics and request buffer.
+	meteredRequests map[string]struct{}
+	metricsRegistry telemetry.MetricsRegistry
+	requestBuffer   *orderedmap.OrderedMap[string, RequestBookmark]
+
+	// Main readers/writers.
+	inputFromClient io.ReadCloser
+	outputToClient  io.WriteCloser
+	inputFromServer io.ReadCloser
+	outputToServer  io.WriteCloser
+
+	// For controlling where data from the server flows to inside lspwatch.
+	serverDataDiverterPipe lspwatch_io.SingleUseDiverterPipe
+	// Reader/writer for lspwatch command mode.
+	serverPassThroughReader io.ReadCloser
+	serverPassThroughWriter io.WriteCloser
+	// Reader/writer for lspwatch proxy mode.
+	serverLspReader io.ReadCloser
+	serverLspWriter io.WriteCloser
+	// Ensure diversion of server data flow happens once.
+	switchToProxyModeOnce sync.Once
+
+	// Lifecycle management.
 	outgoingShutdown   chan struct{}
 	incomingShutdown   chan struct{}
 	listenersWaitGroup *sync.WaitGroup
-	logger             *logrus.Logger
 	shutdownOnce       sync.Once
+	mode               string
+	logger             *logrus.Logger
 }
 
 var defaultMeteredRequests = []string{
@@ -65,9 +83,17 @@ func (ph *ProxyHandler) Wait() {
 }
 
 func (ph *ProxyHandler) Start() {
-	ph.listenersWaitGroup.Add(2)
-	go ph.listenServer()
-	go ph.listenClient()
+	ph.serverDataDiverterPipe.Start()
+
+	if ph.mode != "proxy" {
+		go ph.passThroughServerBytes()
+	}
+
+	if ph.mode != "command" {
+		ph.listenersWaitGroup.Add(1)
+		go ph.listenClient()
+	}
+
 	ph.logger.Info("proxy listeners started")
 }
 
@@ -95,6 +121,17 @@ func (ph *ProxyHandler) enableMetrics(cfg *config.LspwatchConfig) error {
 	return nil
 }
 
+func (ph *ProxyHandler) passThroughServerBytes() {
+	for {
+		buf := make([]byte, 1024)
+		n, err := ph.serverPassThroughReader.Read(buf)
+		if err != nil {
+			break
+		}
+		os.Stdout.Write(buf[:n])
+	}
+}
+
 func (ph *ProxyHandler) listenServer() {
 	type ServerReadResult struct {
 		serverMessage lspwatch_io.LSPServerMessage
@@ -102,8 +139,6 @@ func (ph *ProxyHandler) listenServer() {
 	}
 
 	ctx, stopReader := context.WithCancel(context.Background())
-	internalWg := sync.WaitGroup{}
-	internalWg.Add(1)
 
 	defer func() {
 		stopReader()
@@ -116,16 +151,22 @@ func (ph *ProxyHandler) listenServer() {
 		if err != nil {
 			ph.logger.Errorf("error closing writer for client output: %v", err)
 		}
-		internalWg.Wait()
+		err = ph.serverLspReader.Close()
+		if err != nil {
+			ph.logger.Errorf("error closing server LSP reader: %v", err)
+		}
+		err = ph.serverLspWriter.Close()
+		if err != nil {
+			ph.logger.Errorf("error closing server LSP writer: %v", err)
+		}
+
 		ph.listenersWaitGroup.Done()
 		ph.logger.Info("server listener shutdown complete")
 	}()
 
-	messageReader := lspwatch_io.NewLSPMessageReader(ph.inputFromServer)
+	messageReader := lspwatch_io.NewLSPMessageReader(ph.serverLspReader)
 	serverReadResultChan := make(chan ServerReadResult)
 	go func(ctx context.Context) {
-		defer internalWg.Done()
-
 		for {
 			var serverMessage lspwatch_io.LSPServerMessage
 			result := messageReader.ReadLSPMessage(&serverMessage)
@@ -207,8 +248,6 @@ func (ph *ProxyHandler) listenClient() {
 	}
 
 	ctx, stopReader := context.WithCancel(context.Background())
-	internalWg := sync.WaitGroup{}
-	internalWg.Add(1)
 
 	defer func() {
 		stopReader()
@@ -221,7 +260,6 @@ func (ph *ProxyHandler) listenClient() {
 		if err != nil {
 			ph.logger.Errorf("error closing writer for server output: %v", err)
 		}
-		internalWg.Wait()
 		ph.listenersWaitGroup.Done()
 		ph.logger.Info("client listener shutdown complete")
 	}()
@@ -229,8 +267,6 @@ func (ph *ProxyHandler) listenClient() {
 	messageReader := lspwatch_io.NewLSPMessageReader(ph.inputFromClient)
 	clientReadResultChan := make(chan ClientReadResult)
 	go func(ctx context.Context) {
-		defer internalWg.Done()
-
 		for {
 			var clientMessage lspwatch_io.LSPClientMessage
 			result := messageReader.ReadLSPMessage(&clientMessage)
@@ -268,6 +304,18 @@ func (ph *ProxyHandler) listenClient() {
 				readResult := res.readResult
 				clientMessage := res.clientMessage
 				if readResult.Err == nil {
+					// Client has sent an LSP message, which kicks off normal LSP proxying.
+					// So, stop pass-through of server bytes and start LSP proxying
+					ph.switchToProxyModeOnce.Do(func() {
+						// Caller should do this:
+						ph.serverPassThroughWriter.Close()
+						ph.serverPassThroughReader.Close()
+						ph.serverDataDiverterPipe.Switch()
+						ph.listenersWaitGroup.Add(1)
+						go ph.listenServer()
+					})
+					// ===================================================================
+
 					// lspwatch ignores all non-request messages from clients
 					// e.g (cancellations, progress checks, etc)
 					if clientMessage.Id != nil && clientMessage.Method != nil {
@@ -311,8 +359,15 @@ func NewProxyHandler(
 	outputToClient io.WriteCloser,
 	inputFromServer io.ReadCloser,
 	outputToServer io.WriteCloser,
+	mode string,
 	logger *logrus.Logger,
 ) (*ProxyHandler, error) {
+	switch mode {
+	case "command", "proxy", "":
+	default:
+		return nil, fmt.Errorf("invalid mode: %s", mode)
+	}
+
 	meteredRequests := defaultMeteredRequests
 	if cfg.MeteredRequests != nil {
 		meteredRequests = *cfg.MeteredRequests
@@ -323,18 +378,36 @@ func NewProxyHandler(
 		meteredRequestsMap[requestMethod] = struct{}{}
 	}
 
+	serverPassThroughReader, serverPassThroughWriter := io.Pipe()
+	serverLspReader, serverLspWriter := io.Pipe()
+	serverDataDiverterPipe := lspwatch_io.NewSingleUseDiverterPipe(
+		inputFromServer,
+		serverPassThroughWriter,
+		serverLspWriter,
+	)
+
 	rh := ProxyHandler{
 		meteredRequests: meteredRequestsMap,
 		metricsRegistry: metricsRegistry,
 		requestBuffer:   orderedmap.NewOrderedMap[string, RequestBookmark](),
+
 		inputFromClient: inputFromClient,
 		outputToClient:  outputToClient,
 		inputFromServer: inputFromServer,
 		outputToServer:  outputToServer,
+
+		serverDataDiverterPipe:  serverDataDiverterPipe,
+		serverPassThroughReader: serverPassThroughReader,
+		serverPassThroughWriter: serverPassThroughWriter,
+		serverLspReader:         serverLspReader,
+		serverLspWriter:         serverLspWriter,
+		switchToProxyModeOnce:   sync.Once{},
+
 		// Buffer size of 1 to avoid blocking. Caller does not need to be
 		// monitoring the shutdown channel.
 		outgoingShutdown:   make(chan struct{}, 1),
 		incomingShutdown:   make(chan struct{}),
+		mode:               mode,
 		logger:             logger,
 		listenersWaitGroup: &sync.WaitGroup{},
 	}

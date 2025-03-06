@@ -3,6 +3,7 @@ package io
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,6 +53,14 @@ type LSPReadResult struct {
 	Headers textproto.MIMEHeader
 	RawBody *[]byte
 	Err     error
+}
+
+type SingleUseDiverterPipe struct {
+	source            io.Reader
+	firstDestination  io.Writer
+	secondDestination io.Writer
+	switchCtx         context.Context
+	switchFunc        context.CancelFunc
 }
 
 var _ io.Reader = &HeaderCaptureReader{}
@@ -163,6 +172,10 @@ func (lspmr *LSPMessageReader) ReadLSPMessage(jsonBody interface{}) LSPReadResul
 	}
 }
 
+func (lspmr *LSPMessageReader) Close() error {
+	return lspmr.headerCaptureReader.Close()
+}
+
 func NewHeaderCaptureReader(reader io.ReadCloser) HeaderCaptureReader {
 	return HeaderCaptureReader{reader: reader, reading: true}
 }
@@ -206,6 +219,44 @@ func CreateLogger(logDir string, fileName string) (*logrus.Logger, *os.File, err
 	}
 
 	return logger, nil, nil
+}
+
+func (bd *SingleUseDiverterPipe) Start() {
+	go func() {
+		for {
+			buf := make([]byte, 1024)
+			n, err := bd.source.Read(buf)
+			if err != nil {
+				break
+			}
+
+			select {
+			case <-bd.switchCtx.Done():
+				bd.secondDestination.Write(buf[:n])
+			default:
+				bd.firstDestination.Write(buf[:n])
+			}
+		}
+	}()
+}
+
+func (bd *SingleUseDiverterPipe) Switch() {
+	bd.switchFunc()
+}
+
+func NewSingleUseDiverterPipe(
+	source io.Reader,
+	firstDestination io.Writer,
+	secondDestination io.Writer,
+) SingleUseDiverterPipe {
+	switchCtx, switchFunc := context.WithCancel(context.Background())
+	return SingleUseDiverterPipe{
+		source:            source,
+		firstDestination:  firstDestination,
+		secondDestination: secondDestination,
+		switchCtx:         switchCtx,
+		switchFunc:        switchFunc,
+	}
 }
 
 func checkDir(path string) (bool, error) {
