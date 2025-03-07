@@ -169,6 +169,7 @@ func NewLspwatchInstance(
 	args []string,
 	configFilePath string,
 	logDir string,
+	mode string,
 ) (LspwatchInstance, error) {
 	logger, logFile, err := lspwatch_io.CreateLogger(logDir, "lspwatch.log")
 	if err != nil {
@@ -253,6 +254,7 @@ func NewLspwatchInstance(
 		os.Stdout,
 		serverStdoutPipe,
 		serverStdinPipe,
+		mode,
 		logger,
 	)
 	if err != nil {
