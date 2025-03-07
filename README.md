@@ -69,7 +69,7 @@ TODO
 
 ## Usage
 
-`lspwatch` is an executable that transparently stands in place of the language server. `lspwatch` operates in 2 one of two modes:
+`lspwatch` is an executable that transparently stands in place of the language server. `lspwatch` operates in one of two modes:
 
 1. **`command` mode**: For running one-time language server queries like `gopls stats`, where the command exits after returning results. Editors often use such queries to gather static metadata.
 2. **`proxy` mode**: For long-running language server sessions where LSP messages are continuously exchanged. This is the  typical usage of the language server.
