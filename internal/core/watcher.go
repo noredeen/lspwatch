@@ -22,8 +22,6 @@ type ProcessInfo interface {
 
 type ProcessWatcher struct {
 	metricsRegistry telemetry.MetricsRegistry
-	processHandle   ProcessHandle
-	processInfo     ProcessInfo
 	pollingInterval time.Duration
 	processExited   bool
 
@@ -35,11 +33,11 @@ type ProcessWatcher struct {
 	wg                *sync.WaitGroup
 }
 
-func (pw *ProcessWatcher) Start() error {
+func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
 	// I'm ok with letting this goroutine run indefinitely (for now)
 	go func() {
 		// TODO: use the returned state value
-		_, err := pw.processHandle.Wait()
+		_, err := processHandle.Wait()
 		if err != nil {
 			pw.logger.Errorf("error waiting for process to exit: %v", err)
 		}
@@ -71,7 +69,7 @@ func (pw *ProcessWatcher) Start() error {
 				pw.mu.Unlock()
 
 				if pw.metricsRegistry.IsMetricEnabled(telemetry.ServerRSS) {
-					memoryInfo, err := pw.processInfo.MemoryInfo()
+					memoryInfo, err := processInfo.MemoryInfo()
 					if err != nil {
 						pw.logger.Errorf("failed to get memory info: %v", err)
 						continue
@@ -136,8 +134,6 @@ func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 }
 
 func NewProcessWatcher(
-	processHandle ProcessHandle,
-	processInfo ProcessInfo,
 	metricsRegistry telemetry.MetricsRegistry,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
@@ -148,8 +144,6 @@ func NewProcessWatcher(
 	}
 
 	pw := ProcessWatcher{
-		processHandle:     processHandle,
-		processInfo:       processInfo,
 		metricsRegistry:   metricsRegistry,
 		pollingInterval:   pollingInterval,
 		processExitedChan: make(chan error),

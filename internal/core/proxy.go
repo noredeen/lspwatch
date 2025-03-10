@@ -85,10 +85,17 @@ func (ph *ProxyHandler) Wait() {
 func (ph *ProxyHandler) Start() {
 	ph.serverDataDiverterPipe.Start()
 
+	// If lspwatch is set to command mode or automatic detection, the proxy
+	// handler will start by passing all server bytes through to the client
+	// without any additional processing. In the automatic detection case,
+	// the proxy handler will eventually switch from pass-through to LSP
+	// processing if it determines the correct mode is proxy.
 	if ph.mode != "proxy" {
 		go ph.passThroughServerBytes()
 	}
 
+	// Unless command mode is explicitly set, the proxy handler will process
+	// client data as LSP messages.
 	if ph.mode != "command" {
 		ph.listenersWaitGroup.Add(1)
 		go ph.listenClient()
@@ -304,17 +311,19 @@ func (ph *ProxyHandler) listenClient() {
 				readResult := res.readResult
 				clientMessage := res.clientMessage
 				if readResult.Err == nil {
-					// Client has sent an LSP message, which kicks off normal LSP proxying.
-					// So, stop pass-through of server bytes and start LSP proxying
+					// Client has sent an LSP message, which kicks off normal LSP communication.
+					// So, stop pass-through of server bytes and start LSP processing.
 					ph.switchToProxyModeOnce.Do(func() {
-						// Caller should do this:
+						// TODO: Caller should do this?
+						// Stop pass-through of server bytes.
 						ph.serverPassThroughWriter.Close()
 						ph.serverPassThroughReader.Close()
 						ph.serverDataDiverterPipe.Switch()
+
+						// Start LSP processing for server data.
 						ph.listenersWaitGroup.Add(1)
 						go ph.listenServer()
 					})
-					// ===================================================================
 
 					// lspwatch ignores all non-request messages from clients
 					// e.g (cancellations, progress checks, etc)
@@ -365,7 +374,7 @@ func NewProxyHandler(
 	switch mode {
 	case "command", "proxy", "":
 	default:
-		return nil, fmt.Errorf("invalid mode: %s", mode)
+		return nil, fmt.Errorf("invalid mode: '%s'", mode)
 	}
 
 	meteredRequests := defaultMeteredRequests

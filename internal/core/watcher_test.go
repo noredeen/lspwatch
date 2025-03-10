@@ -66,15 +66,13 @@ func (m *mockProcessInfo) MemoryInfo() (*process.MemoryInfoStat, error) {
 }
 
 func TestNewProcessWatcher(t *testing.T) {
-	processHandle := mockProcessHandle{}
-	processInfo := mockProcessInfo{}
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 	t.Run("no configured metrics", func(t *testing.T) {
 		t.Parallel()
 		metricsRegistry := mockWatcherMetricsRegistry{}
 		cfg := config.LspwatchConfig{}
-		_, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		_, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -94,7 +92,7 @@ func TestNewProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{},
 		}
-		_, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		_, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -111,7 +109,7 @@ func TestNewProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{metricName},
 		}
-		_, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		_, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
@@ -138,12 +136,12 @@ func TestProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
 		}
-		processWatcher, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		processWatcher, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
 
-		err = processWatcher.Start()
+		err = processWatcher.Start(&processHandle, &processInfo)
 		if err != nil {
 			t.Fatalf("expected no errors starting process watcher, got '%v'", err)
 		}
@@ -179,12 +177,12 @@ func TestProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
 		}
-		processWatcher, err := NewProcessWatcher(&processHandle, &processInfo, &metricsRegistry, &cfg, logger)
+		processWatcher, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
 			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
 		}
 
-		err = processWatcher.Start()
+		err = processWatcher.Start(&processHandle, &processInfo)
 		if err != nil {
 			t.Fatalf("expected no errors starting process watcher, got '%v'", err)
 		}

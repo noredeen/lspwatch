@@ -30,7 +30,6 @@ var rootCmd = &cobra.Command{
 		}
 
 		lspwatchInstance, err := internal.NewLspwatchInstance(args[0], serverArgs, configFilePath, logDir, mode)
-
 		if err != nil {
 			fmt.Printf("error setting up lspwatch: %v\n", err)
 			os.Exit(1)
