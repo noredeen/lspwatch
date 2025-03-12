@@ -42,6 +42,7 @@ type ProxyHandler struct {
 	// Reader/writer for lspwatch proxy mode.
 	serverLspReader io.ReadCloser
 	serverLspWriter io.WriteCloser
+
 	// Ensure diversion of server data flow happens once.
 	switchToProxyModeOnce sync.Once
 
@@ -84,6 +85,13 @@ func (ph *ProxyHandler) Wait() {
 
 func (ph *ProxyHandler) Start() {
 	ph.serverDataDiverterPipe.Start()
+
+	displayMode := ph.mode
+	if displayMode == "" {
+		displayMode = "command"
+	}
+
+	ph.logger.Infof("starting proxy handler in %s mode", displayMode)
 
 	// If lspwatch is set to command mode or automatic detection, the proxy
 	// handler will start by passing all server bytes through to the client
@@ -166,17 +174,21 @@ func (ph *ProxyHandler) listenServer() {
 		if err != nil {
 			ph.logger.Errorf("error closing server LSP writer: %v", err)
 		}
+		// err = ph.serverStderr.Close()
+		// if err != nil {
+		// 	ph.logger.Errorf("error closing server stderr: %v", err)
+		// }
 
 		ph.listenersWaitGroup.Done()
 		ph.logger.Info("server listener shutdown complete")
 	}()
 
-	messageReader := lspwatch_io.NewLSPMessageReader(ph.serverLspReader)
+	lspReader := lspwatch_io.NewLSPReader(ph.serverLspReader)
 	serverReadResultChan := make(chan ServerReadResult)
 	go func(ctx context.Context) {
 		for {
 			var serverMessage lspwatch_io.LSPServerMessage
-			result := messageReader.ReadLSPMessage(&serverMessage)
+			result := lspReader.Read(&serverMessage)
 			res := ServerReadResult{
 				serverMessage: serverMessage,
 				result:        &result,
@@ -234,7 +246,13 @@ func (ph *ProxyHandler) listenServer() {
 						}
 					}
 				} else {
-					ph.logger.Errorf("error parsing message from language server: %v", result.Err)
+					if result.Err == io.EOF {
+						ph.logger.Info("server closed connection")
+						ph.raiseShutdownRequest()
+						return
+					}
+
+					ph.logger.Errorf("error reading message from language server: %v", result.Err)
 					continue
 				}
 
@@ -271,20 +289,20 @@ func (ph *ProxyHandler) listenClient() {
 		ph.logger.Info("client listener shutdown complete")
 	}()
 
-	messageReader := lspwatch_io.NewLSPMessageReader(ph.inputFromClient)
+	lspReader := lspwatch_io.NewLSPReader(ph.inputFromClient)
 	clientReadResultChan := make(chan ClientReadResult)
 	go func(ctx context.Context) {
 		for {
 			var clientMessage lspwatch_io.LSPClientMessage
-			result := messageReader.ReadLSPMessage(&clientMessage)
-			message := ClientReadResult{
+			result := lspReader.Read(&clientMessage)
+			res := ClientReadResult{
 				clientMessage: clientMessage,
 				readResult:    &result,
 			}
 			select {
 			case <-ctx.Done():
 				return
-			case clientReadResultChan <- message:
+			case clientReadResultChan <- res:
 			}
 		}
 	}(ctx)
@@ -315,6 +333,7 @@ func (ph *ProxyHandler) listenClient() {
 					// So, stop pass-through of server bytes and start LSP processing.
 					ph.switchToProxyModeOnce.Do(func() {
 						// TODO: Caller should do this?
+						ph.logger.Info("switching proxy handler to proxy mode")
 						// Stop pass-through of server bytes.
 						ph.serverPassThroughWriter.Close()
 						ph.serverPassThroughReader.Close()
@@ -347,6 +366,12 @@ func (ph *ProxyHandler) listenClient() {
 						continue
 					}
 				} else {
+					if readResult.Err == io.EOF {
+						ph.logger.Info("client closed connection")
+						ph.raiseShutdownRequest()
+						return
+					}
+
 					ph.logger.Errorf("error reading message from client: %v", readResult.Err)
 					continue
 				}
@@ -361,6 +386,7 @@ func (ph *ProxyHandler) listenClient() {
 	}
 }
 
+// TODO: Take a single struct argument because this is a mess now.
 func NewProxyHandler(
 	cfg *config.LspwatchConfig,
 	metricsRegistry telemetry.MetricsRegistry,

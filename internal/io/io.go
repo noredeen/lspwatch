@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/textproto"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -36,11 +36,6 @@ type LSPServerMessage struct {
 	}
 }
 
-type LSPMessageReader struct {
-	headerCaptureReader *HeaderCaptureReader
-	bufReader           *bufio.Reader
-}
-
 // io.Reader implementation that captures the first complete MIME header
 // within the buffer.
 type HeaderCaptureReader struct {
@@ -50,7 +45,7 @@ type HeaderCaptureReader struct {
 }
 
 type LSPReadResult struct {
-	Headers textproto.MIMEHeader
+	Headers map[string][]string
 	RawBody *[]byte
 	Err     error
 }
@@ -63,7 +58,9 @@ type SingleUseDiverterPipe struct {
 	switchFunc        context.CancelFunc
 }
 
-var _ io.Reader = &HeaderCaptureReader{}
+type LSPReader struct {
+	in *bufio.Reader
+}
 
 func (s *StringOrInt) UnmarshalJSON(data []byte) error {
 	var intVal int
@@ -114,57 +111,86 @@ func (hcr *HeaderCaptureReader) Reset() {
 	hcr.headerBuffer.Truncate(0)
 }
 
-// Returns the bytes captured by the reader through the end of the first MIME header.
-func (hcr *HeaderCaptureReader) CapturedBytes() []byte {
-	return hcr.headerBuffer.Bytes()
-}
+// Adapted from https://github.com/golang/tools/blob/bf70295789942e4b20ca70a8cd2fe1f3ca2a70bd/internal/jsonrpc2_v2/frame.go#L111
+func (lr *LSPReader) Read(jsonBody any) LSPReadResult {
+	headers := make(map[string][]string)
+	rawLspRequest := make([]byte, 0)
 
-// Reads an LSP message.
-func (lspmr *LSPMessageReader) ReadLSPMessage(jsonBody interface{}) LSPReadResult {
-	lspmr.headerCaptureReader.Reset()
-	tp := textproto.NewReader(lspmr.bufReader)
+	for {
+		line, err := lr.in.ReadString('\n')
+		rawLspRequest = append(rawLspRequest, []byte(line)...)
+		if err != nil {
+			if err == io.EOF {
+				if len(rawLspRequest) == 0 {
+					return LSPReadResult{
+						Err: io.EOF,
+					}
+				}
 
-	headers, err := tp.ReadMIMEHeader()
-	if err != nil {
-		return LSPReadResult{
-			Err: fmt.Errorf("failed to read LSP request header: %v", err),
+				err = io.ErrUnexpectedEOF
+			}
+			return LSPReadResult{
+				Err: fmt.Errorf("error reading header line: %w", err),
+			}
 		}
-	}
 
-	rawLspRequest := lspmr.headerCaptureReader.CapturedBytes()
+		line = strings.TrimSpace(line)
+		if line == "" {
+			// End of headers
+			break
+		}
+
+		colonIndex := strings.IndexRune(line, ':')
+		if colonIndex < 0 {
+			return LSPReadResult{
+				Err: fmt.Errorf("invalid header line: %q", line),
+			}
+		}
+
+		name, value := line[:colonIndex], strings.TrimSpace(line[colonIndex+1:])
+		headers[name] = append(headers[name], value)
+	}
 
 	contentLengths, ok := headers["Content-Length"]
 	if !ok {
 		return LSPReadResult{
-			Err: fmt.Errorf("missing Content-Length header in LSP request"),
+			Err:     fmt.Errorf("missing Content-Length header in LSP request"),
+			RawBody: &rawLspRequest,
 		}
 	}
 
 	contentLength := contentLengths[0]
-	contentByteCnt, err := strconv.Atoi(contentLength)
+	length, err := strconv.ParseInt(contentLength, 10, 32)
 	if err != nil {
 		return LSPReadResult{
-			Err: fmt.Errorf("Content-Length value '%s' is not an integer", contentLength),
+			Err:     fmt.Errorf("failed parsing Content-Length: %q", contentLength),
+			RawBody: &rawLspRequest,
+		}
+	}
+	if length <= 0 {
+		return LSPReadResult{
+			Err:     fmt.Errorf("invalid Content-Length: %d", length),
+			RawBody: &rawLspRequest,
 		}
 	}
 
-	contentBuffer := make([]byte, contentByteCnt)
-	_, err = io.ReadFull(lspmr.bufReader, contentBuffer)
+	jsonData := make([]byte, length)
+	_, err = io.ReadFull(lr.in, jsonData)
 	if err != nil {
 		return LSPReadResult{
-			Err: fmt.Errorf("error reading content bytes: %v", err),
+			Err:     fmt.Errorf("failed to read JSON-RPC payload: %w", err),
+			RawBody: &rawLspRequest,
 		}
 	}
 
-	err = json.Unmarshal(contentBuffer, jsonBody)
+	rawLspRequest = append(rawLspRequest, jsonData...)
+	err = json.Unmarshal(jsonData, jsonBody)
 	if err != nil {
 		return LSPReadResult{
-			Err:     fmt.Errorf("failed to decode JSON-RPC payload: %v", err),
-			RawBody: &contentBuffer,
+			Err:     fmt.Errorf("failed to decode JSON-RPC payload: %w", err),
+			RawBody: &rawLspRequest,
 		}
 	}
-
-	rawLspRequest = append(rawLspRequest, contentBuffer...)
 
 	return LSPReadResult{
 		Headers: headers,
@@ -172,20 +198,8 @@ func (lspmr *LSPMessageReader) ReadLSPMessage(jsonBody interface{}) LSPReadResul
 	}
 }
 
-func (lspmr *LSPMessageReader) Close() error {
-	return lspmr.headerCaptureReader.Close()
-}
-
-func NewHeaderCaptureReader(reader io.ReadCloser) HeaderCaptureReader {
-	return HeaderCaptureReader{reader: reader, reading: true}
-}
-
-func NewLSPMessageReader(reader io.ReadCloser) LSPMessageReader {
-	headerCaptureReader := NewHeaderCaptureReader(reader)
-	return LSPMessageReader{
-		headerCaptureReader: &headerCaptureReader,
-		bufReader:           bufio.NewReader(&headerCaptureReader),
-	}
+func NewLSPReader(reader io.ReadCloser) LSPReader {
+	return LSPReader{in: bufio.NewReader(reader)}
 }
 
 // If logDir is not an empty string, CreateLogger will create a new file inside logDir

@@ -1,8 +1,10 @@
 package internal
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -31,6 +33,7 @@ type LspwatchInstance struct {
 	logger         *logrus.Logger
 	logFile        *os.File
 	serverCmd      *exec.Cmd
+	serverStderr   io.ReadCloser
 }
 
 var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
@@ -87,6 +90,7 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 	proxyHandler.Start()
 	processWatcher.Start(processHandle, processInfo)
 	startInterruptListener(serverCmd, logger)
+	startStderrRecorder(lspwatchInstance.serverStderr, logger)
 
 	exitCode := 0
 	defer func() {
@@ -102,11 +106,14 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 
 	for {
 		select {
-		case err := <-processWatcher.ProcessExited():
+		case state := <-processWatcher.ProcessExited():
 			{
-				logger.Info("language server process exited")
-				if err != nil {
-					exitCode = serverCmd.ProcessState.ExitCode()
+				if state != nil {
+					// TODO: Try to get the real code for signal exits?
+					exitCode = state.ExitCode()
+					logger.Infof("language server process exited with code %d", exitCode)
+				} else {
+					exitCode = 1
 				}
 
 				return nil
@@ -208,6 +215,12 @@ func NewLspwatchInstance(
 	}
 
 	serverCmd := exec.Command(serverShellCommand, args...)
+	errPipe, err := serverCmd.StderrPipe()
+	if err != nil {
+		msg := fmt.Sprintf("error creating pipe to server's stderr: %v", err)
+		logger.Error(msg)
+		return LspwatchInstance{}, errors.New(msg)
+	}
 
 	serverStdoutPipe, err := serverCmd.StdoutPipe()
 	if err != nil {
@@ -302,6 +315,7 @@ func NewLspwatchInstance(
 		proxyHandler:   proxyHandler,
 		processWatcher: processWatcher,
 		serverCmd:      serverCmd,
+		serverStderr:   errPipe,
 	}, nil
 }
 
@@ -340,6 +354,7 @@ func getConfig(path string) (config.LspwatchConfig, error) {
 	return cfg, nil
 }
 
+// TODO: Both of these start* functions can become struct methods.
 func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
@@ -355,6 +370,20 @@ func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 					err,
 				)
 			}
+		}
+	}()
+}
+
+// TODO: Test this functionality in integration tests.
+func startStderrRecorder(errReader io.Reader, logger *logrus.Logger) {
+	go func() {
+		var stderrBuf bytes.Buffer
+		_, err := io.Copy(io.MultiWriter(&stderrBuf, os.Stderr), errReader)
+		if err != nil {
+			logger.Errorf("error copying stderr: %v", err)
+		}
+		if stderrBuf.Len() > 0 {
+			logger.Infof("captured stderr output:\n%s", stderrBuf.String())
 		}
 	}()
 }

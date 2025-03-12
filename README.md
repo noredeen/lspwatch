@@ -76,7 +76,7 @@ TODO
 
 `lspwatch` will automatically choose the correct mode, but you can also specify it using the `--mode` flag (e.g `lspwatch --mode command -- gopls stats`).
 
-Generally, to use `lpswatch` for instrumenting your language server, you will need to replace the command your code editor invokes when running the language server. For example, instead of running `gopls <args>`, your editor should run `lspwatch -- gopls <args>`. Most LSP-equipped editors will have a way to configure this. Some examples are included below, but reference the documentation of your editor or language extension for instructions.
+Generally, to use `lpswatch` for instrumenting your language server, you will need to replace the command your code editor invokes when running the language server. For example, instead of running `gopls <args>`, your editor should run `lspwatch -- gopls <args>`. Most LSP-equipped editors will have a way to configure this. Some verified examples are included below, but reference the documentation of your editor or language extension for instructions.
 
 <details>
 <summary><b>(Golang) Neovim + <code>nvim-lspconfig</code></b></summary>
@@ -103,7 +103,21 @@ gopls = {
 <details>
 <summary><b>(Golang) VSCode + vscode-go</code></b></summary>
 <br/>
-TODO
+
+`/path/to/instrumented_gopls`:
+```bash
+#!/bin/bash
+lspwatch -- gopls "$@"
+```
+
+`.vscode/settings.json`:
+```json
+{
+    "go.alternateTools": {
+        "gopls": "/path/to/instrumented_gopls"
+    }
+}
+```
 </details>
 
 ## Configuration

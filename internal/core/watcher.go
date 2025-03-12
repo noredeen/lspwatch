@@ -26,7 +26,7 @@ type ProcessWatcher struct {
 	processExited   bool
 
 	// TODO Change to a channel of int (exit code)
-	processExitedChan chan error
+	processExitedChan chan *os.ProcessState
 	incomingShutdown  chan struct{}
 	logger            *logrus.Logger
 	mu                sync.Mutex
@@ -36,15 +36,15 @@ type ProcessWatcher struct {
 func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
 	// I'm ok with letting this goroutine run indefinitely (for now)
 	go func() {
-		// TODO: use the returned state value
-		_, err := processHandle.Wait()
+		state, err := processHandle.Wait()
 		if err != nil {
+			// TODO: Should I just os.Exit here?
 			pw.logger.Errorf("error waiting for process to exit: %v", err)
 		}
 
 		pw.mu.Lock()
 		pw.processExited = true
-		pw.processExitedChan <- err
+		pw.processExitedChan <- state
 		pw.mu.Unlock()
 	}()
 
@@ -109,7 +109,7 @@ func (pw *ProcessWatcher) Wait() {
 	pw.logger.Info("process watcher monitors shutdown complete")
 }
 
-func (pw *ProcessWatcher) ProcessExited() chan error {
+func (pw *ProcessWatcher) ProcessExited() chan *os.ProcessState {
 	return pw.processExitedChan
 }
 
@@ -146,7 +146,7 @@ func NewProcessWatcher(
 	pw := ProcessWatcher{
 		metricsRegistry:   metricsRegistry,
 		pollingInterval:   pollingInterval,
-		processExitedChan: make(chan error),
+		processExitedChan: make(chan *os.ProcessState),
 		incomingShutdown:  make(chan struct{}),
 		mu:                sync.Mutex{},
 		logger:            logger,

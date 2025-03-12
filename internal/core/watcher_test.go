@@ -59,6 +59,10 @@ func (m *mockProcessHandle) kill() {
 	close(m.done)
 }
 
+func (m *mockProcessHandle) ExitCode() int {
+	return 0
+}
+
 func (m *mockProcessInfo) MemoryInfo() (*process.MemoryInfoStat, error) {
 	return &process.MemoryInfoStat{
 		RSS: 1000,
