@@ -102,8 +102,8 @@ func (ph *ProxyHandler) Start() {
 		go ph.passThroughServerBytes()
 	}
 
-	// Unless command mode is explicitly set, the proxy handler will process
-	// client data as LSP messages.
+	// Unless command mode is explicitly set, the proxy handler will begin
+	// processing client data as LSP messages.
 	if ph.mode != "command" {
 		ph.listenersWaitGroup.Add(1)
 		go ph.listenClient()
@@ -237,7 +237,7 @@ func (ph *ProxyHandler) listenServer() {
 									duration.Seconds(),
 									telemetry.NewTag("method", telemetry.TagValue(requestBookmark.Method)),
 								)
-								ph.logger.Infof("emitting metric '%s'", requestDurationMetric.Name)
+								ph.logger.Infof("emitting metric %q", requestDurationMetric.Name)
 								err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
 								if err != nil {
 									ph.logger.Errorf("error emitting metric: %v", err)
@@ -246,7 +246,7 @@ func (ph *ProxyHandler) listenServer() {
 						}
 					} else {
 						ph.logger.Infof(
-							"received client response for unbuffered request with ID=%v",
+							"received client response for unbuffered request with ID=%q",
 							serverMessage.Id.Value,
 						)
 					}
@@ -373,7 +373,6 @@ func (ph *ProxyHandler) listenClient() {
 
 func (ph *ProxyHandler) switchToProxyModeOnce() {
 	ph.switchOnce.Do(func() {
-		// TODO: Caller should do this?
 		ph.logger.Info("switching proxy handler to proxy mode")
 		// Stop pass-through of server bytes.
 		ph.serverPassThroughWriter.Close()

@@ -89,8 +89,8 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 	exporter.Start()
 	proxyHandler.Start()
 	processWatcher.Start(processHandle, processInfo)
-	startInterruptListener(serverCmd, logger)
-	startStderrRecorder(lspwatchInstance.serverStderr, logger)
+	lspwatchInstance.startInterruptListener()
+	lspwatchInstance.startStderrRecorder()
 
 	exitCode := 0
 	defer func() {
@@ -319,23 +319,6 @@ func NewLspwatchInstance(
 	}, nil
 }
 
-func getTagValues(
-	cfg *config.LspwatchConfig,
-	tagGetters map[telemetry.AvailableTag]func() telemetry.TagValue,
-) ([]telemetry.Tag, error) {
-	tags := make([]telemetry.Tag, 0, len(cfg.Tags))
-	for _, tag := range cfg.Tags {
-		tagGetter, ok := tagGetters[telemetry.AvailableTag(tag)]
-		if !ok {
-			return []telemetry.Tag{}, fmt.Errorf("tag '%v' not supported", tag)
-		}
-
-		tags = append(tags, telemetry.NewTag(tag, tagGetter()))
-	}
-
-	return tags, nil
-}
-
 func getConfig(path string) (config.LspwatchConfig, error) {
 	if path == "" {
 		return config.GetDefaultConfig(), nil
@@ -354,19 +337,18 @@ func getConfig(path string) (config.LspwatchConfig, error) {
 	return cfg, nil
 }
 
-// TODO: Both of these start* functions can become struct methods.
-func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
+func (lspwatch *LspwatchInstance) startInterruptListener() {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, os.Interrupt)
 
 	go func() {
 		for sig := range signalChan {
-			logger.Infof("lspwatch process interrupted. forwarding signal to language server...")
-			err := serverCmd.Process.Signal(sig)
+			lspwatch.logger.Infof("lspwatch process interrupted. forwarding signal to language server...")
+			err := lspwatch.serverCmd.Process.Signal(sig)
 			if err != nil {
-				logger.Fatalf(
+				lspwatch.logger.Fatalf(
 					"error forwarding signal to language server process (PID=%v): %v",
-					serverCmd.Process.Pid,
+					lspwatch.serverCmd.Process.Pid,
 					err,
 				)
 			}
@@ -375,17 +357,34 @@ func startInterruptListener(serverCmd *exec.Cmd, logger *logrus.Logger) {
 }
 
 // TODO: Test this functionality in integration tests.
-func startStderrRecorder(errReader io.Reader, logger *logrus.Logger) {
+func (lspwatch *LspwatchInstance) startStderrRecorder() {
 	go func() {
 		var stderrBuf bytes.Buffer
-		_, err := io.Copy(io.MultiWriter(&stderrBuf, os.Stderr), errReader)
+		_, err := io.Copy(io.MultiWriter(&stderrBuf, os.Stderr), lspwatch.serverStderr)
 		if err != nil {
-			logger.Errorf("error copying stderr: %v", err)
+			lspwatch.logger.Errorf("error copying stderr: %v", err)
 		}
 		if stderrBuf.Len() > 0 {
-			logger.Infof("captured stderr output:\n%s", stderrBuf.String())
+			lspwatch.logger.Infof("captured stderr output:\n%s", stderrBuf.String())
 		}
 	}()
+}
+
+func getTagValues(
+	cfg *config.LspwatchConfig,
+	tagGetters map[telemetry.AvailableTag]func() telemetry.TagValue,
+) ([]telemetry.Tag, error) {
+	tags := make([]telemetry.Tag, 0, len(cfg.Tags))
+	for _, tag := range cfg.Tags {
+		tagGetter, ok := tagGetters[telemetry.AvailableTag(tag)]
+		if !ok {
+			return []telemetry.Tag{}, fmt.Errorf("tag '%v' not supported", tag)
+		}
+
+		tags = append(tags, telemetry.NewTag(tag, tagGetter()))
+	}
+
+	return tags, nil
 }
 
 func newMetricsExporter(

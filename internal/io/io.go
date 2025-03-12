@@ -2,7 +2,6 @@ package io
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,14 +33,6 @@ type LSPServerMessage struct {
 		Message string
 		Data    *json.RawMessage
 	}
-}
-
-// io.Reader implementation that captures the first complete MIME header
-// within the buffer.
-type HeaderCaptureReader struct {
-	reader       io.ReadCloser
-	headerBuffer bytes.Buffer
-	reading      bool
 }
 
 type LSPReadResult struct {
@@ -76,39 +67,6 @@ func (s *StringOrInt) UnmarshalJSON(data []byte) error {
 	}
 
 	return fmt.Errorf("value is neither string nor int: %s", data)
-}
-
-func (hcr *HeaderCaptureReader) trimBufferAfterHeader() {
-	headerEnd := bytes.Index(hcr.headerBuffer.Bytes(), []byte("\r\n\r\n"))
-	if headerEnd != -1 {
-		hcr.headerBuffer.Truncate(headerEnd + 4)
-	}
-}
-
-func (hcr *HeaderCaptureReader) Read(p []byte) (int, error) {
-	n, err := hcr.reader.Read(p)
-	if err != nil {
-		return n, err
-	}
-
-	if hcr.reading {
-		hcr.headerBuffer.Write(p[:n])
-		if bytes.Contains(hcr.headerBuffer.Bytes(), []byte("\r\n\r\n")) {
-			hcr.reading = false
-			hcr.trimBufferAfterHeader()
-		}
-	}
-
-	return n, err
-}
-
-func (hcr *HeaderCaptureReader) Close() error {
-	return hcr.reader.Close()
-}
-
-func (hcr *HeaderCaptureReader) Reset() {
-	hcr.reading = true
-	hcr.headerBuffer.Truncate(0)
 }
 
 // Adapted from https://github.com/golang/tools/blob/bf70295789942e4b20ca70a8cd2fe1f3ca2a70bd/internal/jsonrpc2_v2/frame.go#L111

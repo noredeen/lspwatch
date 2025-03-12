@@ -106,6 +106,23 @@ func TestLSPReader(t *testing.T) {
 		}
 	})
 
+	t.Run("misformated Content-Length header", func(t *testing.T) {
+		t.Parallel()
+		misformated := "Content-Length 22\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
+		reader := io.NopCloser(strings.NewReader(misformated))
+
+		var body LSPClientMessage
+		lspReader := NewLSPReader(reader)
+		res := lspReader.Read(&body)
+		if res.Err == nil {
+			t.Fatalf("expected to get error when Content-Length header is misformated, but got nil")
+		}
+
+		if !strings.Contains(res.Err.Error(), "invalid header line") {
+			t.Fatalf("expected error to contain 'invalid header line', but got %s", res.Err.Error())
+		}
+	})
+
 	t.Run("Content-Length header is not an int", func(t *testing.T) {
 		t.Parallel()
 		input := "Content-Length: not-an-int\r\n\r\n{}"
@@ -115,6 +132,18 @@ func TestLSPReader(t *testing.T) {
 		res := lspReader.Read(&body)
 		if res.Err == nil {
 			t.Errorf("expected to get error when Content-Length header is not an int, but got nil")
+		}
+	})
+
+	t.Run("Content-Length is negative", func(t *testing.T) {
+		t.Parallel()
+		input := "Content-Length: -1\r\n\r\n{}"
+		reader := io.NopCloser(strings.NewReader(input))
+		lspReader := NewLSPReader(reader)
+		var body LSPClientMessage
+		res := lspReader.Read(&body)
+		if res.Err == nil {
+			t.Errorf("expected to get error when Content-Length header is negative, but got nil")
 		}
 	})
 
