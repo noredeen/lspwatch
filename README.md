@@ -98,8 +98,6 @@ gopls = {
 ```
 </details>
 
-<br/>
-
 <details>
 <summary><b>(Golang) VSCode + vscode-go</code></b></summary>
 <br/>

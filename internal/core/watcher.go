@@ -25,7 +25,6 @@ type ProcessWatcher struct {
 	pollingInterval time.Duration
 	processExited   bool
 
-	// TODO Change to a channel of int (exit code)
 	processExitedChan chan *os.ProcessState
 	incomingShutdown  chan struct{}
 	logger            *logrus.Logger
