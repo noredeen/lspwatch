@@ -22,31 +22,28 @@ type ProcessInfo interface {
 
 type ProcessWatcher struct {
 	metricsRegistry telemetry.MetricsRegistry
-	processHandle   ProcessHandle
-	processInfo     ProcessInfo
 	pollingInterval time.Duration
 	processExited   bool
 
-	// TODO Change to a channel of int (exit code)
-	processExitedChan chan error
+	processExitedChan chan *os.ProcessState
 	incomingShutdown  chan struct{}
 	logger            *logrus.Logger
 	mu                sync.Mutex
 	wg                *sync.WaitGroup
 }
 
-func (pw *ProcessWatcher) Start() error {
-	// I'm ok with letting this goroutine run indefinitely (for now)
+func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
+	// I'm ok with letting this goroutine run indefinitely (for now).
 	go func() {
-		// TODO: use the returned state value
-		_, err := pw.processHandle.Wait()
+		state, err := processHandle.Wait()
 		if err != nil {
-			pw.logger.Errorf("error waiting for process to exit: %v", err)
+			pw.logger.Errorf("fatal error waiting for process to exit: %v", err)
+			os.Exit(1)
 		}
 
 		pw.mu.Lock()
 		pw.processExited = true
-		pw.processExitedChan <- err
+		pw.processExitedChan <- state
 		pw.mu.Unlock()
 	}()
 
@@ -71,7 +68,7 @@ func (pw *ProcessWatcher) Start() error {
 				pw.mu.Unlock()
 
 				if pw.metricsRegistry.IsMetricEnabled(telemetry.ServerRSS) {
-					memoryInfo, err := pw.processInfo.MemoryInfo()
+					memoryInfo, err := processInfo.MemoryInfo()
 					if err != nil {
 						pw.logger.Errorf("failed to get memory info: %v", err)
 						continue
@@ -111,7 +108,7 @@ func (pw *ProcessWatcher) Wait() {
 	pw.logger.Info("process watcher monitors shutdown complete")
 }
 
-func (pw *ProcessWatcher) ProcessExited() chan error {
+func (pw *ProcessWatcher) ProcessExited() chan *os.ProcessState {
 	return pw.processExitedChan
 }
 
@@ -136,8 +133,6 @@ func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 }
 
 func NewProcessWatcher(
-	processHandle ProcessHandle,
-	processInfo ProcessInfo,
 	metricsRegistry telemetry.MetricsRegistry,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
@@ -148,11 +143,9 @@ func NewProcessWatcher(
 	}
 
 	pw := ProcessWatcher{
-		processHandle:     processHandle,
-		processInfo:       processInfo,
 		metricsRegistry:   metricsRegistry,
 		pollingInterval:   pollingInterval,
-		processExitedChan: make(chan error),
+		processExitedChan: make(chan *os.ProcessState),
 		incomingShutdown:  make(chan struct{}),
 		mu:                sync.Mutex{},
 		logger:            logger,

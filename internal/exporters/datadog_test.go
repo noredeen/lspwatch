@@ -394,7 +394,7 @@ func TestDatadogMetricsExporter(t *testing.T) {
 
 		metricsExporter.Start()
 
-		for i := 0; i < batchSize; i++ {
+		for range batchSize {
 			metricsExporter.EmitMetric(
 				telemetry.NewMetricRecording(
 					"test.metric",

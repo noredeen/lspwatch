@@ -33,6 +33,7 @@ func TestInvalidCommand(t *testing.T) {
 }
 
 func TestBadConfigFile(t *testing.T) {
+	// TODO: Check logs.
 	t.Run("unreadable config file", func(t *testing.T) {
 		t.Parallel()
 		logDir := testutil.GenerateRandomLogDirName()
@@ -60,6 +61,7 @@ func TestBadConfigFile(t *testing.T) {
 		}
 	})
 
+	// TODO: Check logs.
 	t.Run("nonexistent env file", func(t *testing.T) {
 		t.Parallel()
 		logDir := testutil.GenerateRandomLogDirName()
@@ -88,10 +90,60 @@ func TestBadConfigFile(t *testing.T) {
 	})
 }
 
+func TestInvalidMode(t *testing.T) {
+	t.Parallel()
+	logDir := testutil.GenerateRandomLogDirName()
+	// No language server command provided.
+	cmd := testutil.PrepareIntegrationTest(
+		t,
+		"--logdir",
+		logDir,
+		"--mode",
+		"invalid_mode",
+		"--",
+		"sleep",
+		"5",
+	)
+	err := cmd.Start()
+	if err != nil {
+		t.Fatalf("error starting lspwatch: %v", err)
+	}
+
+	testutil.AssertExitsBefore(t, "lspwatch", func() {
+		cmd.Process.Wait()
+	}, 3*time.Second)
+
+	if cmd.ProcessState.ExitCode() == 0 {
+		t.Error("expected non-zero exit code")
+	}
+
+	time.Sleep(2 * time.Second)
+
+	fileBytes, err := os.ReadFile(filepath.Join(logDir, "lspwatch.log"))
+	if err != nil {
+		t.Fatalf("error reading lspwatch.log: %v", err)
+	}
+
+	ok := bytes.Contains(fileBytes, []byte("invalid mode: 'invalid_mode'"))
+	if !ok {
+		t.Log(string(fileBytes))
+		t.Fatalf("expected log message \"invalid mode: 'invalid_mode'\" not found in lspwatch.log")
+	}
+}
+
 func TestServerProcessDiesAbruptly(t *testing.T) {
 	t.Parallel()
 	logDir := testutil.GenerateRandomLogDirName()
-	cmd := testutil.PrepareIntegrationTest(t, "--logdir", logDir, "--", "sleep", "5")
+	cmd := testutil.PrepareIntegrationTest(
+		t,
+		"--logdir",
+		logDir,
+		"--mode",
+		"proxy",
+		"--",
+		"sleep",
+		"5",
+	)
 
 	err := cmd.Start()
 	if err != nil {
@@ -118,7 +170,14 @@ func TestServerProcessDiesAbruptly(t *testing.T) {
 func TestUnresponsiveServerProcess(t *testing.T) {
 	t.Parallel()
 	logDir := testutil.GenerateRandomLogDirName()
-	cmd := testutil.PrepareIntegrationTest(t, "--logdir", logDir, "--", "./build/unresponsive_server")
+	cmd := testutil.PrepareIntegrationTest(t,
+		"--logdir",
+		logDir,
+		"--mode",
+		"proxy",
+		"--",
+		"./build/unresponsive_server",
+	)
 
 	serverStdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -170,4 +229,84 @@ func TestUnresponsiveServerProcess(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected log message 'organic language server shutdown failed. forcing with SIGKILL...' not found in lspwatch.log")
 	}
+}
+
+func TestCommandMode(t *testing.T) {
+	t.Run("explicit mode", func(t *testing.T) {
+		t.Parallel()
+		logDir := testutil.GenerateRandomLogDirName()
+		cmd := testutil.PrepareIntegrationTest(
+			t,
+			"--logdir",
+			logDir,
+			"--mode",
+			"command",
+			"--",
+			"echo",
+			"-n", // Suppress newline in output.
+			"integration",
+		)
+
+		serverStdout, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatalf("failed to create stdout pipe: %v", err)
+		}
+
+		err = cmd.Start()
+		if err != nil {
+			t.Fatalf("error starting lspwatch: %v", err)
+		}
+
+		buf := make([]byte, 100)
+		n, err := serverStdout.Read(buf)
+		if err != nil {
+			t.Fatalf("error reading stdout: %v", err)
+		}
+
+		if string(buf[:n]) != "integration" {
+			t.Errorf("expected 'integration' in command stdout but found '%s'", string(buf[:n]))
+		}
+
+		testutil.AssertExitsBefore(t, "lspwatch", func() {
+			cmd.Process.Wait()
+		}, 8*time.Second)
+	})
+
+	t.Run("automatic commmand mode detection", func(t *testing.T) {
+		t.Parallel()
+		logDir := testutil.GenerateRandomLogDirName()
+		cmd := testutil.PrepareIntegrationTest(
+			t,
+			"--logdir",
+			logDir,
+			"--",
+			"echo",
+			"-n", // Suppress newline in output.
+			"integration",
+		)
+
+		serverStdout, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatalf("failed to create stdout pipe: %v", err)
+		}
+
+		err = cmd.Start()
+		if err != nil {
+			t.Fatalf("error starting lspwatch: %v", err)
+		}
+
+		buf := make([]byte, 100)
+		n, err := serverStdout.Read(buf)
+		if err != nil {
+			t.Fatalf("error reading stdout: %v", err)
+		}
+
+		if string(buf[:n]) != "integration" {
+			t.Fatalf("expected 'integration' not found in command stdout but found '%s'", string(buf[:n]))
+		}
+
+		testutil.AssertExitsBefore(t, "lspwatch", func() {
+			cmd.Process.Wait()
+		}, 8*time.Second)
+	})
 }

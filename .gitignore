@@ -14,3 +14,4 @@ lspwatch_metrics.json
 go.work
 **/build/
 **/coverage
+stubs

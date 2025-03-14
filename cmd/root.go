@@ -15,6 +15,8 @@ import (
 
 var configFilePath string
 var logDir string
+var mode string
+
 var rootCmd = &cobra.Command{
 	Use:   "lspwatch",
 	Short: "lspwatch provides observability for LSP-compliant language servers over stdin/stdout",
@@ -27,8 +29,7 @@ var rootCmd = &cobra.Command{
 			serverArgs = []string{}
 		}
 
-		lspwatchInstance, err := internal.NewLspwatchInstance(args[0], serverArgs, configFilePath, logDir)
-
+		lspwatchInstance, err := internal.NewLspwatchInstance(args[0], serverArgs, configFilePath, logDir, mode)
 		if err != nil {
 			fmt.Printf("error setting up lspwatch: %v\n", err)
 			os.Exit(1)
@@ -48,4 +49,5 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&configFilePath, "config", "", "path to config file for lspwatch")
 	rootCmd.PersistentFlags().StringVar(&logDir, "logdir", "", "path to log directory for lspwatch")
+	rootCmd.PersistentFlags().StringVar(&mode, "mode", "", "lpswatch mode (`command` or `proxy`)")
 }

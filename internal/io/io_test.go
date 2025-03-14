@@ -1,7 +1,6 @@
 package io
 
 import (
-	"bytes"
 	"io"
 	"strings"
 	"testing"
@@ -52,67 +51,16 @@ func TestStringOrInt(t *testing.T) {
 	})
 }
 
-func TestHeaderCaptureReader(t *testing.T) {
-	t.Run("captures a complete header one Read()", func(t *testing.T) {
-		t.Parallel()
-		headers := "Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n"
-		reader := io.NopCloser(strings.NewReader(headers + "{\"foo\": \"bar\"}"))
-		headerCaptureReader := NewHeaderCaptureReader(reader)
-		buffer := make([]byte, 1024)
-		headerCaptureReader.Read(buffer)
-
-		if !cmp.Equal(headerCaptureReader.CapturedBytes(), []byte(headers)) {
-			t.Fatalf("expected captured bytes to be %s, but got %s", headers, string(headerCaptureReader.CapturedBytes()))
-		}
-
-		if !bytes.Contains(buffer, []byte(headers)) {
-			t.Fatal("expected Read() to place read bytes in the buffer")
-		}
-	})
-
-	t.Run("captures a complete header (and no more) with multiple Read()s", func(t *testing.T) {
-		t.Parallel()
-		headers := "Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n"
-		reader := io.NopCloser(strings.NewReader(headers))
-		headerCaptureReader := NewHeaderCaptureReader(reader)
-		buffer1 := make([]byte, 3)
-		buffer2 := make([]byte, 100)
-		headerCaptureReader.Read(buffer1)
-		headerCaptureReader.Read(buffer2)
-
-		if !cmp.Equal(headerCaptureReader.CapturedBytes(), []byte(headers)) {
-			t.Fatalf("expected captured bytes to be %s, but got %s", headers, string(headerCaptureReader.CapturedBytes()))
-		}
-	})
-
-	t.Run("captures a partial header", func(t *testing.T) {
-		t.Parallel()
-		headers := "Content-Length: 133\r\nSome-Header: Some-"
-		reader := io.NopCloser(strings.NewReader(headers))
-		headerCaptureReader := NewHeaderCaptureReader(reader)
-		buffer := make([]byte, 500)
-		headerCaptureReader.Read(buffer)
-
-		if !cmp.Equal(headerCaptureReader.CapturedBytes(), []byte(headers)) {
-			t.Fatalf("expected captured bytes to be %s, but got %s", headers, string(headerCaptureReader.CapturedBytes()))
-		}
-
-		if !bytes.Contains(buffer, []byte(headers)) {
-			t.Fatal("expected Read() to place read bytes in the buffer")
-		}
-	})
-}
-
-func TestLSPMessageReader(t *testing.T) {
+func TestLSPReader(t *testing.T) {
 	t.Run("correct input with extra header", func(t *testing.T) {
 		t.Parallel()
 
 		correctInput := "Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
 		reader := io.NopCloser(strings.NewReader(correctInput))
-		lspmr := NewLSPMessageReader(reader)
+		lspReader := NewLSPReader(reader)
 
 		var body LSPClientMessage
-		res := lspmr.ReadLSPMessage(&body)
+		res := lspReader.Read(&body)
 		if res.Err != nil {
 			t.Fatalf("expcted to read correct LSP message, but got error: %v", res.Err)
 		}
@@ -147,8 +95,8 @@ func TestLSPMessageReader(t *testing.T) {
 		reader := io.NopCloser(strings.NewReader(missingContentLengthInput))
 
 		var body LSPClientMessage
-		lspmr := NewLSPMessageReader(reader)
-		res := lspmr.ReadLSPMessage(&body)
+		lspReader := NewLSPReader(reader)
+		res := lspReader.Read(&body)
 		if res.Err == nil {
 			t.Fatalf("expected to get error when Content-Length header is missing, but got nil")
 		}
@@ -158,15 +106,44 @@ func TestLSPMessageReader(t *testing.T) {
 		}
 	})
 
+	t.Run("misformated Content-Length header", func(t *testing.T) {
+		t.Parallel()
+		misformated := "Content-Length 22\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
+		reader := io.NopCloser(strings.NewReader(misformated))
+
+		var body LSPClientMessage
+		lspReader := NewLSPReader(reader)
+		res := lspReader.Read(&body)
+		if res.Err == nil {
+			t.Fatalf("expected to get error when Content-Length header is misformated, but got nil")
+		}
+
+		if !strings.Contains(res.Err.Error(), "invalid header line") {
+			t.Fatalf("expected error to contain 'invalid header line', but got %s", res.Err.Error())
+		}
+	})
+
 	t.Run("Content-Length header is not an int", func(t *testing.T) {
 		t.Parallel()
 		input := "Content-Length: not-an-int\r\n\r\n{}"
 		reader := io.NopCloser(strings.NewReader(input))
-		lspmr := NewLSPMessageReader(reader)
+		lspReader := NewLSPReader(reader)
 		var body LSPClientMessage
-		res := lspmr.ReadLSPMessage(&body)
+		res := lspReader.Read(&body)
 		if res.Err == nil {
 			t.Errorf("expected to get error when Content-Length header is not an int, but got nil")
+		}
+	})
+
+	t.Run("Content-Length is negative", func(t *testing.T) {
+		t.Parallel()
+		input := "Content-Length: -1\r\n\r\n{}"
+		reader := io.NopCloser(strings.NewReader(input))
+		lspReader := NewLSPReader(reader)
+		var body LSPClientMessage
+		res := lspReader.Read(&body)
+		if res.Err == nil {
+			t.Errorf("expected to get error when Content-Length header is negative, but got nil")
 		}
 	})
 
@@ -174,9 +151,9 @@ func TestLSPMessageReader(t *testing.T) {
 		t.Parallel()
 		input := "Content-Length: 133\r\n\r\n{\"jsonrpc\"/ \"2.0\", \"method\"; \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
 		reader := io.NopCloser(strings.NewReader(input))
-		lspmr := NewLSPMessageReader(reader)
+		lspReader := NewLSPReader(reader)
 		var body LSPClientMessage
-		res := lspmr.ReadLSPMessage(&body)
+		res := lspReader.Read(&body)
 		if res.Err == nil {
 			t.Errorf("expected to get error when JSON body is invalid, but got nil")
 		}
@@ -186,15 +163,15 @@ func TestLSPMessageReader(t *testing.T) {
 		t.Parallel()
 		input := "Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}Content-Length: 133\r\nSome-Header: Some-Value\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"textDocument/highlight\", \"id\": 2, \"params\": {\"textDocument\": {\"uri\": \"file:///Users/someone/test.go\"}}}"
 		reader := io.NopCloser(strings.NewReader(input))
-		lspmr := NewLSPMessageReader(reader)
+		lspReader := NewLSPReader(reader)
 
 		var body LSPClientMessage
-		res := lspmr.ReadLSPMessage(&body)
+		res := lspReader.Read(&body)
 		if res.Err != nil {
 			t.Fatalf("expected first read to succeed, but got error '%v'", res.Err)
 		}
 
-		res = lspmr.ReadLSPMessage(&body)
+		res = lspReader.Read(&body)
 		if res.Err != nil {
 			t.Fatalf("expected second read to succeed, but got error '%v'", res.Err)
 		}
