@@ -33,12 +33,12 @@ type ProcessWatcher struct {
 }
 
 func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
-	// I'm ok with letting this goroutine run indefinitely (for now)
+	// I'm ok with letting this goroutine run indefinitely (for now).
 	go func() {
 		state, err := processHandle.Wait()
 		if err != nil {
-			// TODO: Should I just os.Exit here?
-			pw.logger.Errorf("error waiting for process to exit: %v", err)
+			pw.logger.Errorf("fatal error waiting for process to exit: %v", err)
+			os.Exit(1)
 		}
 
 		pw.mu.Lock()

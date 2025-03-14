@@ -30,7 +30,6 @@ var _ telemetry.MetricsRegistry = &mockWatcherMetricsRegistry{}
 var _ ProcessHandle = &mockProcessHandle{}
 var _ ProcessInfo = &mockProcessInfo{}
 
-// TODO all mocks
 func (m *mockWatcherMetricsRegistry) EnableMetric(metric telemetry.AvailableMetric) error {
 	m.enableMetricCalls = append(m.enableMetricCalls, metric)
 	return nil

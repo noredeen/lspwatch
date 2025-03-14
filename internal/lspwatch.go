@@ -50,7 +50,7 @@ var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegis
 		Kind:        telemetry.Histogram,
 		Name:        "lspwatch.server.rss",
 		Description: "RSS of the language server process",
-		Unit:        "bytes", // TODO: Check if this is correct
+		Unit:        "By",
 	},
 }
 
@@ -248,7 +248,7 @@ func NewLspwatchInstance(
 			return telemetry.TagValue(runtime.GOOS)
 		},
 		telemetry.LanguageServer: func() telemetry.TagValue {
-			// TODO: This is not robust.
+			// TODO: This is not robust?
 			return telemetry.TagValue(filepath.Base(serverCmd.Path))
 		},
 		telemetry.RAM: func() telemetry.TagValue {

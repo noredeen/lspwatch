@@ -161,7 +161,7 @@ func (ph *ProxyHandler) listenServer() {
 		if err != nil {
 			ph.logger.Errorf("error closing reader for server input: %v", err)
 		}
-		// TODO: IMO, closing the outputToClient writer should be done in the caller, not here
+		// TODO: IMO, closing the outputToClient writer should be done in the caller, not here.
 		err = ph.outputToClient.Close()
 		if err != nil {
 			ph.logger.Errorf("error closing writer for client output: %v", err)
@@ -276,7 +276,7 @@ func (ph *ProxyHandler) listenClient() {
 		if err != nil {
 			ph.logger.Errorf("error closing reader for client input: %v", err)
 		}
-		// TODO: IMO, closing the outputToServer writer should be done in the caller, not here
+		// TODO: IMO, closing the outputToServer writer should be done in the caller, not here.
 		err = ph.outputToServer.Close()
 		if err != nil {
 			ph.logger.Errorf("error closing writer for server output: %v", err)
@@ -385,7 +385,6 @@ func (ph *ProxyHandler) switchToProxyModeOnce() {
 	})
 }
 
-// TODO: Take a single struct argument because this is a mess now.
 func NewProxyHandler(
 	cfg *config.LspwatchConfig,
 	metricsRegistry telemetry.MetricsRegistry,
