@@ -1,3 +1,8 @@
+> [!WARNING]
+> `lspwatch` is beta software. It is under active development and may undergo significant, backwards-incompatible changes. I make no strong claims about its stability at the moment.
+
+---
+
 <div align="center">
 <h1>
   <div class="image-wrapper" style="display: inline-block;">
