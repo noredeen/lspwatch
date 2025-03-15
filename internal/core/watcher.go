@@ -27,6 +27,7 @@ type ProcessWatcher struct {
 
 	processExitedChan chan *os.ProcessState
 	incomingShutdown  chan struct{}
+	shutdownOnce      sync.Once
 	logger            *logrus.Logger
 	mu                sync.Mutex
 	wg                *sync.WaitGroup
@@ -95,10 +96,9 @@ func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo Process
 
 // Idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 func (pw *ProcessWatcher) Shutdown() error {
-	if pw.incomingShutdown != nil {
+	pw.shutdownOnce.Do(func() {
 		close(pw.incomingShutdown)
-		pw.incomingShutdown = nil
-	}
+	})
 
 	return nil
 }
@@ -147,6 +147,7 @@ func NewProcessWatcher(
 		pollingInterval:   pollingInterval,
 		processExitedChan: make(chan *os.ProcessState),
 		incomingShutdown:  make(chan struct{}),
+		shutdownOnce:      sync.Once{},
 		mu:                sync.Mutex{},
 		logger:            logger,
 		wg:                &sync.WaitGroup{},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -89,6 +90,13 @@ func (dme *DatadogMetricsExporter) RegisterMetric(registration telemetry.MetricR
 }
 
 func (dme *DatadogMetricsExporter) EmitMetric(metric telemetry.MetricRecording) error {
+	dme.mu.Lock()
+	defer dme.mu.Unlock()
+
+	if !dme.running {
+		return errors.New("datadog metricsexporter not running")
+	}
+
 	dme.metricsChan <- metric
 	return nil
 }
