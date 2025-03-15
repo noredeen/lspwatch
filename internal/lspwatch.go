@@ -150,7 +150,8 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 			logger.Info("organic language server shutdown failed. forcing with SIGKILL...")
 			err := serverCmd.Process.Signal(syscall.SIGKILL)
 			if err != nil {
-				logger.Fatalf("error signaling language server to shut down: %v", err)
+				logger.Errorf("fatal error signaling language server to shut down: %v", err)
+				os.Exit(1)
 			}
 		}
 	}
@@ -166,11 +167,13 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 
 	err := proxyHandler.Shutdown()
 	if err != nil {
-		logger.Fatalf("error shutting down proxy handler: %v", err)
+		logger.Errorf("fatal error shutting down proxy handler: %v", err)
+		os.Exit(1)
 	}
 	err = processWatcher.Shutdown()
 	if err != nil {
-		logger.Fatalf("error shutting down process watcher: %v", err)
+		logger.Errorf("fatal error shutting down process watcher: %v", err)
+		os.Exit(1)
 	}
 	proxyHandler.Wait()
 	logger.Info("proxy handler shutdown complete")
@@ -181,7 +184,8 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 	// emitted their final metrics and exited.
 	err = exporter.Shutdown()
 	if err != nil {
-		logger.Fatalf("error shutting down metrics exporter: %v", err)
+		logger.Errorf("fatal error shutting down metrics exporter: %v", err)
+		os.Exit(1)
 	}
 	exporter.Wait()
 	logger.Info("metrics exporter shutdown complete")
@@ -361,11 +365,12 @@ func (lspwatch *LspwatchInstance) startInterruptListener() {
 			lspwatch.logger.Infof("lspwatch process interrupted. forwarding signal to language server...")
 			err := lspwatch.serverCmd.Process.Signal(sig)
 			if err != nil {
-				lspwatch.logger.Fatalf(
-					"error forwarding signal to language server process (PID=%v): %v",
+				lspwatch.logger.Errorf(
+					"fatal error forwarding signal to language server process (PID=%v): %v",
 					lspwatch.serverCmd.Process.Pid,
 					err,
 				)
+				os.Exit(1)
 			}
 		}
 	}()
