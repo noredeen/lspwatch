@@ -5,9 +5,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/noredeen/lspwatch/internal/config"
@@ -40,6 +42,11 @@ type MetricsOTelExporter struct {
 	globalTags          []telemetry.Tag
 	shutdownCtx         context.Context
 	shutdownCancel      context.CancelFunc
+	mu                  sync.Mutex
+	running             bool
+
+	logger  *logrus.Logger
+	logFile *os.File
 }
 
 // Why not the stdoutmetric exporter from otel/exporters?
@@ -75,6 +82,12 @@ func (ome *MetricsOTelExporter) RegisterMetric(registration telemetry.MetricRegi
 }
 
 func (ome *MetricsOTelExporter) EmitMetric(metricRecording telemetry.MetricRecording) error {
+	ome.mu.Lock()
+	defer ome.mu.Unlock()
+	if !ome.running {
+		return errors.New("otel metrics exporter not running")
+	}
+
 	histogram, ok := ome.histograms[metricRecording.Name]
 	if !ok {
 		return fmt.Errorf("histogram not found for metric: %s", metricRecording.Name)
@@ -97,34 +110,60 @@ func (ome *MetricsOTelExporter) EmitMetric(metricRecording telemetry.MetricRecor
 }
 
 func (ome *MetricsOTelExporter) Start() error {
+	ome.mu.Lock()
+	defer ome.mu.Unlock()
+
+	if ome.running {
+		return fmt.Errorf("exporter already running")
+	}
+
 	meterProvider := newOTelMeterProvider(ome.otelExporter, &ome.resource)
 	meter := meterProvider.Meter("lspwatch")
 	ome.meterProvider = meterProvider
 	ome.meter = meter
-
 	err := ome.createInstrumentsFromRegistrations()
 	if err != nil {
 		return err
 	}
 
+	ome.logger.Info("started OTel metrics exporter")
+	ome.running = true
 	return nil
 }
 
+// TODO: Should no-op if the exporter never started.
 // NOTE: Might have to rework this into invoking a function stored in the struct.
 func (ome *MetricsOTelExporter) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ome.mu.Lock()
+	defer ome.mu.Unlock()
+
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if ome.running {
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		go ome.meterProvider.Shutdown(ctx)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+		cancel()
+	}
+
 	ome.shutdownCtx = ctx
 	ome.shutdownCancel = cancel
-	go ome.meterProvider.Shutdown(ome.shutdownCtx)
 	return nil
 }
 
 func (ome *MetricsOTelExporter) Wait() {
 	<-ome.shutdownCtx.Done()
 	ome.shutdownCancel()
+	ome.logger.Info("OTel metrics exporter shutdown complete")
 }
 
 func (ome *MetricsOTelExporter) Release() error {
+	err := ome.logFile.Close()
+	if err != nil {
+		return fmt.Errorf("error closing otel log file: %v", err)
+	}
+
 	return nil
 }
 
@@ -241,7 +280,7 @@ func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logDir string) (*Me
 		return nil, err
 	}
 
-	logger, _, err := io.CreateLogger(logDir, "otel.log")
+	logger, loggerFile, err := io.CreateLogger(logDir, "otel.log")
 	if err != nil {
 		return nil, fmt.Errorf("error creating otel logger: %v", err)
 	}
@@ -250,6 +289,8 @@ func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logDir string) (*Me
 		resource:     *res,
 		otelExporter: &loggingExporter{wrapped: metricExporter, logger: logger},
 		histograms:   make(map[string]metric.Float64Histogram),
+		logger:       logger,
+		logFile:      loggerFile,
 	}, nil
 }
 
