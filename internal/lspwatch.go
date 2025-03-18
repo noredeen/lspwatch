@@ -41,7 +41,8 @@ var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistra
 		Kind:        telemetry.Histogram,
 		Name:        "lspwatch.request.duration",
 		Description: "Duration of LSP request",
-		Unit:        "s",
+		OTelUnit:    "s",
+		DatadogUnit: "s",
 	},
 }
 
@@ -50,7 +51,8 @@ var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegis
 		Kind:        telemetry.Histogram,
 		Name:        "lspwatch.server.rss",
 		Description: "RSS of the language server process",
-		Unit:        "By",
+		OTelUnit:    "By",
+		DatadogUnit: "bytes",
 	},
 }
 
@@ -262,40 +264,13 @@ func NewLspwatchInstance(
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
-	tagGetters := map[telemetry.AvailableTag]func() telemetry.TagValue{
-		telemetry.OS: func() telemetry.TagValue {
-			return telemetry.TagValue(runtime.GOOS)
-		},
-		telemetry.LanguageServer: func() telemetry.TagValue {
-			// TODO: This is not robust?
-			return telemetry.TagValue(filepath.Base(serverCmd.Path))
-		},
-		telemetry.RAM: func() telemetry.TagValue {
-			vmem, err := mem.VirtualMemory()
-			if err != nil {
-				logger.Errorf("error getting total system memory: %v", err)
-				return ""
-			}
-			totalGB := vmem.Total / (1024 * 1024 * 1024)
-			return telemetry.TagValue(fmt.Sprintf("%v", totalGB))
-		},
-		telemetry.User: func() telemetry.TagValue {
-			curr, err := user.Current()
-			if err != nil {
-				logger.Errorf("error getting current user: %v", err)
-				return ""
-			}
-			return telemetry.TagValue(curr.Username)
-		},
-	}
-
-	tags, err := getTagValues(&cfg, tagGetters)
+	globalTags, err := getTagValues(&cfg, globalTagGetters(serverCmd.Path, logger))
 	if err != nil {
 		msg := fmt.Sprintf("error getting tag values: %v", err)
 		logger.Error(msg)
 		return LspwatchInstance{}, errors.New(msg)
 	}
-	exporter.SetGlobalTags(tags...)
+	exporter.SetGlobalTags(globalTags...)
 
 	requestMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableLSPMetrics)
 	proxyHandler, err := core.NewProxyHandler(
@@ -336,6 +311,35 @@ func NewLspwatchInstance(
 		serverCmd:      serverCmd,
 		serverStderr:   errPipe,
 	}, nil
+}
+
+func globalTagGetters(serverCmdPath string, logger *logrus.Logger) map[telemetry.AvailableTag]func() telemetry.TagValue {
+	return map[telemetry.AvailableTag]func() telemetry.TagValue{
+		telemetry.OS: func() telemetry.TagValue {
+			return telemetry.TagValue(runtime.GOOS)
+		},
+		telemetry.LanguageServer: func() telemetry.TagValue {
+			// TODO: This is not robust?
+			return telemetry.TagValue(filepath.Base(serverCmdPath))
+		},
+		telemetry.RAM: func() telemetry.TagValue {
+			vmem, err := mem.VirtualMemory()
+			if err != nil {
+				logger.Errorf("error getting total system memory: %v", err)
+				return ""
+			}
+			totalGB := vmem.Total / (1024 * 1024 * 1024)
+			return telemetry.TagValue(fmt.Sprintf("%v", totalGB))
+		},
+		telemetry.User: func() telemetry.TagValue {
+			curr, err := user.Current()
+			if err != nil {
+				logger.Errorf("error getting current user: %v", err)
+				return ""
+			}
+			return telemetry.TagValue(curr.Username)
+		},
+	}
 }
 
 func getConfig(path string) (config.LspwatchConfig, error) {

@@ -52,7 +52,8 @@ func (m *mockMetricsProcessor) processBatch(
 	)
 }
 
-func (m *mockMetricsProcessor) setGlobalTags(tags ...telemetry.Tag) {}
+func (m *mockMetricsProcessor) setGlobalTags(tags ...telemetry.Tag)                 {}
+func (m *mockMetricsProcessor) addMetricUnitMapping(metricName string, unit string) {}
 
 func (m *mockMetricsApi) SubmitMetrics(
 	ctx context.Context,
@@ -134,6 +135,14 @@ func TestGetDatadogContext(t *testing.T) {
 }
 
 func TestDefaultMetricsProcessor_getTimeseries(t *testing.T) {
+	processor := &defaultMetricsProcessor{
+		metricsApiClient: &mockMetricsApi{},
+		datadogContext:   context.Background(),
+		globalTags: []telemetry.Tag{
+			telemetry.NewTag("global_tag", "global_value"),
+		},
+	}
+
 	batch := []telemetry.MetricRecording{
 		telemetry.NewMetricRecording(
 			"test.first_metric",
@@ -162,9 +171,7 @@ func TestDefaultMetricsProcessor_getTimeseries(t *testing.T) {
 		),
 	}
 
-	timeseries := getTimeseries(batch, []telemetry.Tag{
-		telemetry.NewTag("global_tag", "global_value"),
-	})
+	timeseries := processor.getTimeseries(batch)
 
 	if len(timeseries) != 3 {
 		t.Fatalf("expected getTimeseries to return 3 timeseries, got %d", len(timeseries))

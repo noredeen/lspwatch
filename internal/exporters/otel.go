@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+// TODO: Make these configurable.
 const (
 	otlpHandshakeTimeout = 7 * time.Second
 	emitMetricTimeout    = 4 * time.Second
@@ -131,8 +132,6 @@ func (ome *MetricsOTelExporter) Start() error {
 	return nil
 }
 
-// TODO: Should no-op if the exporter never started.
-// NOTE: Might have to rework this into invoking a function stored in the struct.
 func (ome *MetricsOTelExporter) Shutdown() error {
 	ome.mu.Lock()
 	defer ome.mu.Unlock()
@@ -144,6 +143,7 @@ func (ome *MetricsOTelExporter) Shutdown() error {
 		go ome.meterProvider.Shutdown(ctx)
 	} else {
 		ctx, cancel = context.WithCancel(context.Background())
+		// Store a canceled context so Wait() returns immediately.
 		cancel()
 	}
 
@@ -179,7 +179,7 @@ func (ome *MetricsOTelExporter) createInstrumentsFromRegistrations() error {
 			hist, err := ome.meter.Float64Histogram(
 				registration.Name,
 				metric.WithDescription(registration.Description),
-				metric.WithUnit(registration.Unit),
+				metric.WithUnit(registration.OTelUnit),
 			)
 			if err != nil {
 				return err
@@ -321,7 +321,6 @@ func newTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 	return &tlsCfg, nil
 }
 
-// TODO: File rotation.
 func newFileExporter(cfg *config.OpenTelemetryConfig) (*fileExporter, error) {
 	path := filepath.Join(cfg.Directory, "lspwatch_metrics.json")
 

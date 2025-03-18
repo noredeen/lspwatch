@@ -5,16 +5,6 @@ import (
 	"time"
 )
 
-// type EmitMetricCall struct {
-// 	MetricArg MetricRecording
-// 	ErrorRet  error
-// }
-
-// type RegisterMetricCall struct {
-// 	MetricArg MetricRegistration
-// 	ErrorRet  error
-// }
-
 type MockMetricsExporter struct {
 	emitMetricCalls     []MetricRecording
 	registerMetricCalls []MetricRegistration
@@ -54,13 +44,15 @@ func TestDefaultMetricsRegistry_IsMetricEnabled(t *testing.T) {
 				Kind:        Histogram,
 				Description: "foo",
 				Name:        "lspwatch.foo",
-				Unit:        "s",
+				OTelUnit:    "s",
+				DatadogUnit: "s",
 			},
 			AvailableMetric("bar"): {
 				Kind:        Histogram,
 				Description: "bar",
 				Name:        "lspwatch.bar",
-				Unit:        "s",
+				OTelUnit:    "s",
+				DatadogUnit: "s",
 			},
 		},
 		enabled: map[AvailableMetric]bool{
@@ -90,7 +82,8 @@ func TestDefaultMetricsRegistry_EnableMetric(t *testing.T) {
 				Kind:        Histogram,
 				Description: "foo",
 				Name:        "lspwatch.foo",
-				Unit:        "s",
+				OTelUnit:    "s",
+				DatadogUnit: "s",
 			},
 		},
 	)
@@ -135,7 +128,8 @@ func TestDefaultMetricsRegistry_EmitMetric(t *testing.T) {
 					Kind:        Histogram,
 					Description: "foo",
 					Name:        "lspwatch.foo",
-					Unit:        "s",
+					OTelUnit:    "s",
+					DatadogUnit: "s",
 				},
 			},
 			enabled: map[AvailableMetric]bool{
@@ -175,7 +169,8 @@ func TestDefaultMetricsRegistry_EmitMetric(t *testing.T) {
 					Kind:        Histogram,
 					Description: "foo",
 					Name:        "lspwatch.foo",
-					Unit:        "s",
+					OTelUnit:    "s",
+					DatadogUnit: "s",
 				},
 			},
 			enabled: map[AvailableMetric]bool{},

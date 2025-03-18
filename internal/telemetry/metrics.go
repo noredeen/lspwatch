@@ -4,7 +4,6 @@ import (
 	"fmt"
 )
 
-// TODO: I am not so sure about my decision to use async Start/Shutdown.
 type MetricsExporter interface {
 	RegisterMetric(registration MetricRegistration) error
 	// Must be safe to call before Start() is called.
@@ -61,7 +60,8 @@ type MetricRegistration struct {
 	Kind        MetricKind
 	Name        string
 	Description string
-	Unit        string
+	OTelUnit    string
+	DatadogUnit string
 }
 
 type MetricRecording struct {

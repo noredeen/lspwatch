@@ -25,6 +25,7 @@ const defaultBatchTimeout = 30 * time.Second
 
 type metricsProcessor interface {
 	setGlobalTags(tags ...telemetry.Tag)
+	addMetricUnitMapping(metricName string, unit string)
 	processBatch(batch []telemetry.MetricRecording, wg *sync.WaitGroup, logger *logrus.Logger)
 }
 
@@ -37,9 +38,10 @@ type metricsApiClient interface {
 }
 
 type defaultMetricsProcessor struct {
-	metricsApiClient metricsApiClient
-	datadogContext   context.Context
-	globalTags       []telemetry.Tag
+	metricsApiClient  metricsApiClient
+	datadogContext    context.Context
+	globalTags        []telemetry.Tag
+	metricUnitMapping map[string]string
 }
 
 type DatadogMetricsExporter struct {
@@ -58,34 +60,11 @@ type DatadogMetricsExporter struct {
 var _ metricsProcessor = &defaultMetricsProcessor{}
 var _ telemetry.MetricsExporter = &DatadogMetricsExporter{}
 
-func (dmp *defaultMetricsProcessor) setGlobalTags(tags ...telemetry.Tag) {
-	dmp.globalTags = tags
-}
-
-// TODO: This should be refactored to use a context.
-func (dmp *defaultMetricsProcessor) processBatch(
-	batch []telemetry.MetricRecording,
-	wg *sync.WaitGroup,
-	logger *logrus.Logger,
-) {
-	defer wg.Done()
-
-	timeseriesColl := getTimeseries(batch, dmp.globalTags)
-	payload := datadogV2.NewMetricPayload(timeseriesColl)
-	// TODO: Units.
-	// TODO: Add deadline.
-	_, r, err := dmp.metricsApiClient.SubmitMetrics(dmp.datadogContext, *payload)
-	if err != nil {
-		logger.Errorf("error seding metrics batch to Datadog: %v", err)
-	} else {
-		logger.Infof("received %v response from Datadog", r.Status)
-	}
-}
-
 // No-op. No need to register metrics for the Datadog exporter.
 // An exporter is managed through a MetricsRegistry in lspwatch, which
 // takes care of managing enabled/disabled metrics from the config.
 func (dme *DatadogMetricsExporter) RegisterMetric(registration telemetry.MetricRegistration) error {
+	dme.processor.addMetricUnitMapping(registration.Name, registration.DatadogUnit)
 	return nil
 }
 
@@ -191,6 +170,74 @@ func (dme *DatadogMetricsExporter) runMetricsBatchHandler() {
 	}
 }
 
+func (dmp *defaultMetricsProcessor) setGlobalTags(tags ...telemetry.Tag) {
+	dmp.globalTags = tags
+}
+
+// TODO: This should be refactored to use a context.
+func (dmp *defaultMetricsProcessor) processBatch(
+	batch []telemetry.MetricRecording,
+	wg *sync.WaitGroup,
+	logger *logrus.Logger,
+) {
+	defer wg.Done()
+
+	timeseriesColl := dmp.getTimeseries(batch)
+	payload := datadogV2.NewMetricPayload(timeseriesColl)
+	// TODO: Units.
+	// TODO: Add deadline.
+	_, r, err := dmp.metricsApiClient.SubmitMetrics(dmp.datadogContext, *payload)
+	if err != nil {
+		logger.Errorf("error seding metrics batch to Datadog: %v", err)
+	} else {
+		logger.Infof("received %v response from Datadog", r.Status)
+	}
+}
+
+func (dmp *defaultMetricsProcessor) getTimeseries(batch []telemetry.MetricRecording) []datadogV2.MetricSeries {
+	groupedMetrics := make(map[string][]telemetry.MetricRecording)
+	for _, metric := range batch {
+		key := computeTimeseriesId(metric)
+		var metrics []telemetry.MetricRecording
+		if coll, ok := groupedMetrics[key]; ok {
+			metrics = coll
+		} else {
+			metrics = []telemetry.MetricRecording{}
+		}
+		metrics = append(metrics, metric)
+		groupedMetrics[key] = metrics
+	}
+
+	timeseriesColl := make([]datadogV2.MetricSeries, 0, len(groupedMetrics))
+	for _, metrics := range groupedMetrics {
+		metricName := metrics[0].Name
+		metricTags := getTags(metrics[0])
+
+		points := []datadogV2.MetricPoint{}
+		for _, metricRecording := range metrics {
+			point := datadogV2.MetricPoint{
+				Timestamp: datadog.PtrInt64(metricRecording.Timestamp),
+				Value:     datadog.PtrFloat64(metricRecording.Value),
+			}
+			points = append(points, point)
+		}
+
+		timeseries := datadogV2.NewMetricSeries(metricName, points)
+		timeseries.SetUnit(dmp.metricUnitMapping[metricName])
+		for _, tag := range dmp.globalTags {
+			metricTags = append(metricTags, getTagString(tag.Key, string(tag.Value)))
+		}
+		timeseries.SetTags(metricTags)
+		timeseriesColl = append(timeseriesColl, *timeseries)
+	}
+
+	return timeseriesColl
+}
+
+func (dmp *defaultMetricsProcessor) addMetricUnitMapping(metricName string, unit string) {
+	dmp.metricUnitMapping[metricName] = unit
+}
+
 // Use GetDatadogContext to create a context with the Datadog API keys.
 func NewDatadogMetricsExporter(
 	datadogCtx context.Context,
@@ -263,45 +310,6 @@ func GetDatadogContext(cfg *config.DatadogConfig) context.Context {
 	}
 
 	return ctx
-}
-
-func getTimeseries(batch []telemetry.MetricRecording, globalTags []telemetry.Tag) []datadogV2.MetricSeries {
-	groupedMetrics := make(map[string][]telemetry.MetricRecording)
-	for _, metric := range batch {
-		key := computeTimeseriesId(metric)
-		var metrics []telemetry.MetricRecording
-		if coll, ok := groupedMetrics[key]; ok {
-			metrics = coll
-		} else {
-			metrics = []telemetry.MetricRecording{}
-		}
-		metrics = append(metrics, metric)
-		groupedMetrics[key] = metrics
-	}
-
-	timeseriesColl := make([]datadogV2.MetricSeries, 0, len(groupedMetrics))
-	for _, metrics := range groupedMetrics {
-		metricName := metrics[0].Name
-		metricTags := getTags(metrics[0])
-
-		points := []datadogV2.MetricPoint{}
-		for _, metricRecording := range metrics {
-			point := datadogV2.MetricPoint{
-				Timestamp: datadog.PtrInt64(metricRecording.Timestamp),
-				Value:     datadog.PtrFloat64(metricRecording.Value),
-			}
-			points = append(points, point)
-		}
-
-		timeseries := datadogV2.NewMetricSeries(metricName, points)
-		for _, tag := range globalTags {
-			metricTags = append(metricTags, getTagString(tag.Key, string(tag.Value)))
-		}
-		timeseries.SetTags(metricTags)
-		timeseriesColl = append(timeseriesColl, *timeseries)
-	}
-
-	return timeseriesColl
 }
 
 func computeTimeseriesId(metric telemetry.MetricRecording) string {
