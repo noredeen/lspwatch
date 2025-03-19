@@ -26,14 +26,14 @@ import (
 )
 
 type LspwatchInstance struct {
-	cfg            config.LspwatchConfig
-	exporter       telemetry.MetricsExporter
-	proxyHandler   *core.ProxyHandler
-	processWatcher *core.ProcessWatcher
-	logger         *logrus.Logger
-	logFile        *os.File
-	serverCmd      *exec.Cmd
-	serverStderr   io.ReadCloser
+	cfg           config.LspwatchConfig
+	exporter      telemetry.MetricsExporter
+	proxyHandler  *core.ProxyHandler
+	serverWatcher *core.ServerWatcher
+	logger        *logrus.Logger
+	logFile       *os.File
+	serverCmd     *exec.Cmd
+	serverStderr  io.ReadCloser
 }
 
 var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
@@ -72,7 +72,7 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 	serverCmd := lspwatchInstance.serverCmd
 	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
-	processWatcher := lspwatchInstance.processWatcher
+	serverWatcher := lspwatchInstance.serverWatcher
 
 	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args[1:])
 	err := serverCmd.Start()
@@ -89,9 +89,9 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 	}
 
 	proxyHandler.Start()
-	err = processWatcher.Start(processHandle, processInfo)
+	err = serverWatcher.Start(processHandle, processInfo)
 	if err != nil {
-		logger.Errorf("fatal error starting process watcher: %v", err)
+		logger.Errorf("fatal error starting server watcher: %v", err)
 		os.Exit(1)
 	}
 	lspwatchInstance.startInterruptListener()
@@ -111,7 +111,7 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 
 	for {
 		select {
-		case state := <-processWatcher.ProcessExited():
+		case state := <-serverWatcher.ProcessExited():
 			{
 				if state != nil {
 					// TODO: Try to get the real code for signal exits?
@@ -165,24 +165,24 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 	logger := lspwatchInstance.logger
 	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
-	processWatcher := lspwatchInstance.processWatcher
+	serverWatcher := lspwatchInstance.serverWatcher
 
 	err := proxyHandler.Shutdown()
 	if err != nil {
 		logger.Errorf("fatal error shutting down proxy handler: %v", err)
 		os.Exit(1)
 	}
-	err = processWatcher.Shutdown()
+	err = serverWatcher.Shutdown()
 	if err != nil {
-		logger.Errorf("fatal error shutting down process watcher: %v", err)
+		logger.Errorf("fatal error shutting down server watcher: %v", err)
 		os.Exit(1)
 	}
 	proxyHandler.Wait()
 	logger.Info("proxy handler shutdown complete")
-	processWatcher.Wait()
-	logger.Info("process watcher shutdown complete")
+	serverWatcher.Wait()
+	logger.Info("server watcher shutdown complete")
 
-	// Shut down exporter only after proxy handler and process watcher have
+	// Shut down exporter only after proxy handler and server watcher have
 	// emitted their final metrics and exited.
 	err = exporter.Shutdown()
 	if err != nil {
@@ -290,26 +290,26 @@ func NewLspwatchInstance(
 	}
 
 	serverMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableServerMetrics)
-	processWatcher, err := core.NewProcessWatcher(
+	serverWatcher, err := core.NewServerWatcher(
 		&serverMetricsRegistry,
 		&cfg,
 		logger,
 	)
 	if err != nil {
-		msg := fmt.Sprintf("error initializing process watcher: %v", err)
+		msg := fmt.Sprintf("error initializing server watcher: %v", err)
 		logger.Error(msg)
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
 	return LspwatchInstance{
-		cfg:            cfg,
-		exporter:       exporter,
-		logger:         logger,
-		logFile:        logFile,
-		proxyHandler:   proxyHandler,
-		processWatcher: processWatcher,
-		serverCmd:      serverCmd,
-		serverStderr:   errPipe,
+		cfg:           cfg,
+		exporter:      exporter,
+		logger:        logger,
+		logFile:       logFile,
+		proxyHandler:  proxyHandler,
+		serverWatcher: serverWatcher,
+		serverCmd:     serverCmd,
+		serverStderr:  errPipe,
 	}, nil
 }
 

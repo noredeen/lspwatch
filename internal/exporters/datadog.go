@@ -270,8 +270,9 @@ func NewDatadogMetricsExporter(
 	metricsChan := make(chan telemetry.MetricRecording)
 	exporter := DatadogMetricsExporter{
 		processor: &defaultMetricsProcessor{
-			metricsApiClient: metricsApi,
-			datadogContext:   datadogCtx,
+			metricsApiClient:  metricsApi,
+			datadogContext:    datadogCtx,
+			metricUnitMapping: make(map[string]string),
 		},
 		metricsChan:  metricsChan,
 		batchSize:    batchSize,

@@ -1,5 +1,5 @@
 > [!WARNING]
-> `lspwatch` is beta software. It is under active development and may undergo significant, backwards-incompatible changes. I make no strong claims about its stability at the moment.
+> `lspwatch` is beta software. It is under active development and may undergo significant, backwards-incompatible changes. No stability guarantees.
 
 ---
 
@@ -129,8 +129,20 @@ lspwatch -- gopls "$@"
 
 TODO
 
+## Contributing
+
+Contributions are welcomed and a contributing guide is in the works. Refer to the installation section for steps to build from source.
+
+<details>
+<summary><b>Architecture of <code>lspwatch</code></b></summary>
+<br/>
+
+<img src="https://github-production-user-asset-6210df.s3.amazonaws.com/30037359/424455023-a463a884-cd73-4075-89b4-f72106916542.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20250319%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250319T113907Z&X-Amz-Expires=300&X-Amz-Signature=b199aa893f4f8930717d0ef183f36c90998408ac2bba7703358203be0f74d255&X-Amz-SignedHeaders=host">
+
+</details>
+
 ## Backlog
 
 - [ ] File rotation for logs and OTel local exports.
-- [ ] Support for `tsserver` messages.
+- [ ] Support for `tsserver` protocol.
 - [ ] New metric: Number of language server crashes.

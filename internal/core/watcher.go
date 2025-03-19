@@ -20,7 +20,7 @@ type ProcessInfo interface {
 	MemoryInfo() (*process.MemoryInfoStat, error)
 }
 
-type ProcessWatcher struct {
+type ServerWatcher struct {
 	metricsRegistry telemetry.MetricsRegistry
 	pollingInterval time.Duration
 	processExited   bool
@@ -33,7 +33,7 @@ type ProcessWatcher struct {
 	wg                *sync.WaitGroup
 }
 
-func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
+func (pw *ServerWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
 	// I'm ok with letting this goroutine run indefinitely (for now).
 	go func() {
 		state, err := processHandle.Wait()
@@ -90,12 +90,12 @@ func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo Process
 		}
 	}()
 
-	pw.logger.Info("process watcher started")
+	pw.logger.Info("server watcher started")
 	return nil
 }
 
 // Idempotent and non-blocking. Use Wait() to block until shutdown is complete.
-func (pw *ProcessWatcher) Shutdown() error {
+func (pw *ServerWatcher) Shutdown() error {
 	pw.shutdownOnce.Do(func() {
 		close(pw.incomingShutdown)
 	})
@@ -103,16 +103,16 @@ func (pw *ProcessWatcher) Shutdown() error {
 	return nil
 }
 
-func (pw *ProcessWatcher) Wait() {
+func (pw *ServerWatcher) Wait() {
 	pw.wg.Wait()
-	pw.logger.Info("process watcher monitors shutdown complete")
+	pw.logger.Info("server watcher monitors shutdown complete")
 }
 
-func (pw *ProcessWatcher) ProcessExited() chan *os.ProcessState {
+func (pw *ServerWatcher) ProcessExited() chan *os.ProcessState {
 	return pw.processExitedChan
 }
 
-func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
+func (pw *ServerWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {
 		err := pw.metricsRegistry.EnableMetric(telemetry.ServerRSS)
@@ -132,17 +132,17 @@ func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 	return nil
 }
 
-func NewProcessWatcher(
+func NewServerWatcher(
 	metricsRegistry telemetry.MetricsRegistry,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
-) (*ProcessWatcher, error) {
+) (*ServerWatcher, error) {
 	pollingInterval := 5 * time.Second
 	if cfg.PollingInterval != nil {
 		pollingInterval = time.Duration(*cfg.PollingInterval) * time.Second
 	}
 
-	pw := ProcessWatcher{
+	pw := ServerWatcher{
 		metricsRegistry:   metricsRegistry,
 		pollingInterval:   pollingInterval,
 		processExitedChan: make(chan *os.ProcessState),

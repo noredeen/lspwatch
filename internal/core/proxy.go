@@ -95,20 +95,17 @@ func (ph *ProxyHandler) Start() {
 
 	ph.logger.Infof("starting proxy handler in %q mode", displayMode)
 
-	// If lspwatch is set to command mode or automatic detection, the proxy
-	// handler will start by passing all server bytes through to the client
-	// without any additional processing. In the automatic detection case,
-	// the proxy handler will eventually switch from pass-through to LSP
-	// processing if it determines the correct mode is proxy.
-	if ph.mode != "proxy" {
-		go ph.passThroughServerBytes()
-	}
-
-	// Unless command mode is explicitly set, the proxy handler will begin
-	// processing client data as LSP messages.
-	if ph.mode != "command" {
-		ph.listenersWaitGroup.Add(1)
+	if ph.mode == "proxy" {
+		ph.listenersWaitGroup.Add(2)
 		go ph.listenClient()
+		go ph.listenServer()
+	} else if ph.mode == "command" {
+		go ph.passThroughServerBytes()
+	} else {
+		ph.listenersWaitGroup.Add(2)
+		go ph.listenClient()
+		go ph.listenServer()
+		go ph.passThroughServerBytes()
 	}
 
 	ph.logger.Info("proxy listeners started")
@@ -390,9 +387,6 @@ func (ph *ProxyHandler) switchToProxyModeOnce() {
 		ph.serverPassThroughWriter.Close()
 		ph.serverPassThroughReader.Close()
 		ph.serverDataDiverterPipe.Switch()
-		// Start LSP processing for server data.
-		ph.listenersWaitGroup.Add(1)
-		go ph.listenServer()
 
 		<-ph.modeSwitchHandshake
 	})
