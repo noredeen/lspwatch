@@ -10,8 +10,8 @@ import (
 )
 
 // TODO:
-// - [ ] units in datadog exporter
-// - [ ] make request buffer thread-safe?
+// - [ ] Check what happens if we send input during command mode.
+// - [ ] Make request buffer thread-safe?.
 
 var configFilePath string
 var logDir string

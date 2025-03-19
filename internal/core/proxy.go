@@ -47,12 +47,14 @@ type ProxyHandler struct {
 	switchOnce sync.Once
 
 	// Lifecycle management.
-	outgoingShutdown   chan struct{}
-	incomingShutdown   chan struct{}
-	listenersWaitGroup *sync.WaitGroup
-	shutdownOnce       sync.Once
-	mode               string
-	logger             *logrus.Logger
+	outgoingShutdown chan struct{}
+	incomingShutdown chan struct{}
+	// Must be unbuffered to ensure synchronization.
+	modeSwitchHandshake chan struct{}
+	listenersWaitGroup  *sync.WaitGroup
+	shutdownOnce        sync.Once
+	mode                string
+	logger              *logrus.Logger
 }
 
 var defaultMeteredRequests = []string{
@@ -93,23 +95,29 @@ func (ph *ProxyHandler) Start() {
 
 	ph.logger.Infof("starting proxy handler in %q mode", displayMode)
 
-	// If lspwatch is set to command mode or automatic detection, the proxy
-	// handler will start by passing all server bytes through to the client
-	// without any additional processing. In the automatic detection case,
-	// the proxy handler will eventually switch from pass-through to LSP
-	// processing if it determines the correct mode is proxy.
-	if ph.mode != "proxy" {
+	if ph.mode == "proxy" {
+		ph.listenersWaitGroup.Add(2)
+		go ph.listenClient()
+		go ph.listenServer()
+	} else if ph.mode == "command" {
+		go ph.passThroughServerBytes()
+	} else {
+		ph.listenersWaitGroup.Add(2)
+		go ph.listenClient()
+		go ph.listenServer()
 		go ph.passThroughServerBytes()
 	}
 
-	// Unless command mode is explicitly set, the proxy handler will begin
-	// processing client data as LSP messages.
-	if ph.mode != "command" {
-		ph.listenersWaitGroup.Add(1)
-		go ph.listenClient()
-	}
-
 	ph.logger.Info("proxy listeners started")
+}
+
+func (ph *ProxyHandler) SwitchedToProxyMode() chan struct{} {
+	return ph.modeSwitchHandshake
+}
+
+// Blocks until the proxy handler receives the confirmation.
+func (ph *ProxyHandler) ConfirmProxyMode() {
+	ph.modeSwitchHandshake <- struct{}{}
 }
 
 func (ph *ProxyHandler) raiseShutdownRequest() {
@@ -161,7 +169,7 @@ func (ph *ProxyHandler) listenServer() {
 		if err != nil {
 			ph.logger.Errorf("error closing reader for server input: %v", err)
 		}
-		// TODO: IMO, closing the outputToClient writer should be done in the caller, not here.
+		// TODO: Closing the outputToServer writer should be done in the caller, not here?
 		err = ph.outputToClient.Close()
 		if err != nil {
 			ph.logger.Errorf("error closing writer for client output: %v", err)
@@ -276,7 +284,7 @@ func (ph *ProxyHandler) listenClient() {
 		if err != nil {
 			ph.logger.Errorf("error closing reader for client input: %v", err)
 		}
-		// TODO: IMO, closing the outputToServer writer should be done in the caller, not here.
+		// TODO: Closing the outputToServer writer should be done in the caller, not here?
 		err = ph.outputToServer.Close()
 		if err != nil {
 			ph.logger.Errorf("error closing writer for server output: %v", err)
@@ -373,15 +381,14 @@ func (ph *ProxyHandler) listenClient() {
 
 func (ph *ProxyHandler) switchToProxyModeOnce() {
 	ph.switchOnce.Do(func() {
-		ph.logger.Info("switching proxy handler to proxy mode")
+		ph.modeSwitchHandshake <- struct{}{}
+
 		// Stop pass-through of server bytes.
 		ph.serverPassThroughWriter.Close()
 		ph.serverPassThroughReader.Close()
 		ph.serverDataDiverterPipe.Switch()
 
-		// Start LSP processing for server data.
-		ph.listenersWaitGroup.Add(1)
-		go ph.listenServer()
+		<-ph.modeSwitchHandshake
 	})
 }
 
@@ -438,11 +445,12 @@ func NewProxyHandler(
 
 		// Buffer size of 1 to avoid blocking. Caller does not need to be
 		// monitoring the shutdown channel.
-		outgoingShutdown:   make(chan struct{}, 1),
-		incomingShutdown:   make(chan struct{}),
-		mode:               mode,
-		logger:             logger,
-		listenersWaitGroup: &sync.WaitGroup{},
+		outgoingShutdown:    make(chan struct{}, 1),
+		incomingShutdown:    make(chan struct{}),
+		modeSwitchHandshake: make(chan struct{}),
+		mode:                mode,
+		logger:              logger,
+		listenersWaitGroup:  &sync.WaitGroup{},
 	}
 
 	err := rh.enableMetrics(cfg)
