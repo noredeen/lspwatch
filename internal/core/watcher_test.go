@@ -24,11 +24,8 @@ type mockProcessHandle struct {
 	done chan struct{}
 }
 
-type mockProcessInfo struct{}
-
 var _ telemetry.MetricsRegistry = &mockWatcherMetricsRegistry{}
 var _ ProcessHandle = &mockProcessHandle{}
-var _ ProcessInfo = &mockProcessInfo{}
 
 func (m *mockWatcherMetricsRegistry) EnableMetric(metric telemetry.AvailableMetric) error {
 	m.enableMetricCalls = append(m.enableMetricCalls, metric)
@@ -54,18 +51,18 @@ func (m *mockProcessHandle) Wait() (*os.ProcessState, error) {
 	return &state, nil
 }
 
+func (m *mockProcessHandle) MemoryInfo() (*process.MemoryInfoStat, error) {
+	return &process.MemoryInfoStat{
+		RSS: 1000,
+	}, nil
+}
+
 func (m *mockProcessHandle) kill() {
 	close(m.done)
 }
 
 func (m *mockProcessHandle) ExitCode() int {
 	return 0
-}
-
-func (m *mockProcessInfo) MemoryInfo() (*process.MemoryInfoStat, error) {
-	return &process.MemoryInfoStat{
-		RSS: 1000,
-	}, nil
 }
 
 func TestNewServerWatcher(t *testing.T) {
@@ -130,7 +127,6 @@ func TestNewServerWatcher(t *testing.T) {
 func TestServerWatcher(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
-	processInfo := mockProcessInfo{}
 	t.Run("emits metrics on interval and shuts down", func(t *testing.T) {
 		t.Parallel()
 		processHandle := mockProcessHandle{}
@@ -144,10 +140,7 @@ func TestServerWatcher(t *testing.T) {
 			t.Fatalf("expected no errors creating server watcher, got '%v'", err)
 		}
 
-		err = serverWatcher.Start(&processHandle, &processInfo)
-		if err != nil {
-			t.Fatalf("expected no errors starting server watcher, got '%v'", err)
-		}
+		serverWatcher.Start(&processHandle)
 
 		sleepDuration := (time.Duration(pollingIntervalSeconds*2) * time.Second) + 500*time.Millisecond
 		time.Sleep(sleepDuration)
@@ -185,10 +178,7 @@ func TestServerWatcher(t *testing.T) {
 			t.Fatalf("expected no errors creating server watcher, got '%v'", err)
 		}
 
-		err = serverWatcher.Start(&processHandle, &processInfo)
-		if err != nil {
-			t.Fatalf("expected no errors starting server watcher, got '%v'", err)
-		}
+		serverWatcher.Start(&processHandle)
 
 		processHandle.kill()
 		time.Sleep(500 * time.Millisecond)

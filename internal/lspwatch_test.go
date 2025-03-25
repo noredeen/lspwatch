@@ -12,8 +12,8 @@ func TestNewMetricsExporter(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Exporter: "datadog",
 			Datadog: &config.DatadogConfig{
-				ClientApiKeyEnvVar: "CLIENT_API_KEY",
-				ClientAppKeyEnvVar: "CLIENT_APP_KEY",
+				ClientApiKey: "CLIENT_API_KEY",
+				ClientAppKey: "CLIENT_APP_KEY",
 			},
 		}
 

@@ -12,7 +12,7 @@ type MetricsExporter interface {
 
 	// Must be idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 	Shutdown() error
-	// Runs the exporter asynchronously.
+	// Must be idempotent and non-blocking.
 	Start() error
 	// Blocks until the exporter has flushed all held metrics and shut down.
 	Wait()

@@ -292,10 +292,10 @@ func GetDatadogContext(cfg *config.DatadogConfig) context.Context {
 		datadog.ContextAPIKeys,
 		map[string]datadog.APIKey{
 			"apiKeyAuth": {
-				Key: os.Getenv(cfg.ClientApiKeyEnvVar),
+				Key: cfg.ClientApiKey,
 			},
 			"appKeyAuth": {
-				Key: os.Getenv(cfg.ClientAppKeyEnvVar),
+				Key: cfg.ClientAppKey,
 			},
 		},
 	)

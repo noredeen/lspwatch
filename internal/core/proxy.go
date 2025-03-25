@@ -149,8 +149,10 @@ func (ph *ProxyHandler) passThroughServerBytes() {
 		buf := make([]byte, 1024)
 		n, err := ph.serverPassThroughReader.Read(buf)
 		if err != nil {
+			ph.logger.Errorf("error reading from server pass through reader: %v", err)
 			break
 		}
+		ph.logger.Infof("read %d bytes from server pass through reader", n)
 		os.Stdout.Write(buf[:n])
 	}
 }
@@ -335,7 +337,9 @@ func (ph *ProxyHandler) listenClient() {
 				if readResult.Err != nil {
 					if readResult.Err == io.EOF {
 						ph.logger.Info("client closed connection")
-						ph.raiseShutdownRequest()
+						// Notably, no ph.raiseShutdownRequest() here.
+						// A client closing the connection is not considered an error.
+						// lspwatch is to continue its server-watching duties.
 						return
 					}
 

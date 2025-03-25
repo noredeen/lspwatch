@@ -18,7 +18,7 @@ import (
 	"github.com/noredeen/lspwatch/internal/testutil"
 )
 
-// Test flow:
+// Test flow for http/grpc OTel:
 //
 //	(go test process) ------launch------
 //	    |                               |
@@ -30,7 +30,8 @@ import (
 //	                       v   v
 //	             **OTel collector in Docker
 
-type otelExportedObject struct {
+// For grpc/http exporters.
+type otelExternalExportedObject struct {
 	ResourceMetrics []struct {
 		ScopeMetrics []struct {
 			Metrics []struct {
@@ -51,7 +52,7 @@ type otelExportedObject struct {
 	}
 }
 
-func TestLspwatchWithExternalOtel(t *testing.T) {
+func TestLspwatchWithOtel(t *testing.T) {
 	testDataDir := os.Getenv("TEST_DATA_DIR")
 	if testDataDir == "" {
 		t.Fatalf("TEST_DATA_DIR is not set")
@@ -94,7 +95,10 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 				},
 			},
 		)
-		runTest(t, lspwatchConfigFile, otelExportsDir, messages)
+		runTest(t, lspwatchConfigFile, messages)
+		// Wait for the language server to send all its messages and for the exporter to flush.
+		time.Sleep(13 * time.Second)
+		assertExternalExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
 	})
 
 	t.Run("http exporter", func(t *testing.T) {
@@ -118,11 +122,22 @@ func TestLspwatchWithExternalOtel(t *testing.T) {
 				},
 			},
 		)
-		runTest(t, lspwatchConfigFile, otelExportsDir, messages)
+		runTest(t, lspwatchConfigFile, messages)
+		// Wait for the language server to send all its messages and for the exporter to flush.
+		time.Sleep(13 * time.Second)
+		assertExternalExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
+	})
+
+	t.Run("file exporter", func(t *testing.T) {
+		t.Parallel()
+		lspwatchConfigFile := filepath.Join(cwd, "config", "otel_file_lspwatch.yaml")
+		runTest(t, lspwatchConfigFile, messages)
+		time.Sleep(13 * time.Second)
+		// Wait for the language server to send all its messages and for the exporter to flush.
 	})
 }
 
-func runTest(t *testing.T, configFile string, otelExportsDir string, messages []string) {
+func runTest(t *testing.T, configFile string, messages []string) {
 	t.Helper()
 	cmd := testutil.PrepareIntegrationTest(
 		t,
@@ -194,16 +209,10 @@ func runTest(t *testing.T, configFile string, otelExportsDir string, messages []
 	}
 
 	t.Logf("Sent %d messages", len(messages))
-	t.Log("Waiting...")
-
-	// Wait for the language server to send all its messages and for the exporter to flush.
-	time.Sleep(13 * time.Second)
-
-	// Inspect the otel collector export for metrics
-	assertExporterOTelMetrics(t, filepath.Join(otelExportsDir, "metrics.json"))
 }
 
-func assertExporterOTelMetrics(t *testing.T, otelFilePath string) {
+// For grpc/http exporters.
+func assertExternalExporterOTelMetrics(t *testing.T, otelFilePath string) {
 	otelFile, err := os.Open(otelFilePath)
 	if err != nil {
 		t.Fatalf("failed to open otel metrics file: %v", err)
@@ -213,7 +222,7 @@ func assertExporterOTelMetrics(t *testing.T, otelFilePath string) {
 	foundRequestMetric := false
 	foundServerMetric := false
 	for {
-		var exportedObject otelExportedObject
+		var exportedObject otelExternalExportedObject
 		err = decoder.Decode(&exportedObject)
 		if err != nil {
 			t.Logf("failed to decode otel metrics JSON export: %v", err)
@@ -234,7 +243,7 @@ func assertExporterOTelMetrics(t *testing.T, otelFilePath string) {
 					assertOTelAttributes(
 						t,
 						firstDataPointAttrs,
-						[]string{"user", "os", "ram", "language_server"},
+						[]string{"user", "os", "ram", "language_server", "project"},
 					)
 				}
 			}

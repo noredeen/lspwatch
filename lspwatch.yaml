@@ -1,10 +1,13 @@
-exporter: datadog
-env_file: datadog.env
+project: lspwatch
+exporter: opentelemetry
 tags:
   - os
   - language_server
   - ram
   - user
-datadog:
-  client_api_key_env_var: DD_CLIENT_API_KEY
-  client_app_key_env_var: DD_CLIENT_APP_KEY
+env_file: lspwatch.env
+opentelemetry:
+  endpoint: api.honeycomb.io
+  protocol: grpc
+  headers:
+    x-honeycomb-team: ${HONEYCOMB_TEAM}

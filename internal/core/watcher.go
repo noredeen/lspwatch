@@ -14,10 +14,20 @@ import (
 
 type ProcessHandle interface {
 	Wait() (*os.ProcessState, error)
+	MemoryInfo() (*process.MemoryInfoStat, error)
 }
 
-type ProcessInfo interface {
-	MemoryInfo() (*process.MemoryInfoStat, error)
+type DefaultProcessHandle struct {
+	proc     *os.Process
+	procInfo *process.Process
+}
+
+func (ph *DefaultProcessHandle) Wait() (*os.ProcessState, error) {
+	return ph.proc.Wait()
+}
+
+func (ph *DefaultProcessHandle) MemoryInfo() (*process.MemoryInfoStat, error) {
+	return ph.procInfo.MemoryInfo()
 }
 
 type ServerWatcher struct {
@@ -33,7 +43,7 @@ type ServerWatcher struct {
 	wg                *sync.WaitGroup
 }
 
-func (pw *ServerWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
+func (pw *ServerWatcher) Start(processHandle ProcessHandle) {
 	// I'm ok with letting this goroutine run indefinitely (for now).
 	go func() {
 		state, err := processHandle.Wait()
@@ -69,7 +79,7 @@ func (pw *ServerWatcher) Start(processHandle ProcessHandle, processInfo ProcessI
 				pw.mu.Unlock()
 
 				if pw.metricsRegistry.IsMetricEnabled(telemetry.ServerRSS) {
-					memoryInfo, err := processInfo.MemoryInfo()
+					memoryInfo, err := processHandle.MemoryInfo()
 					if err != nil {
 						pw.logger.Errorf("failed to get memory info: %v", err)
 						continue
@@ -91,7 +101,6 @@ func (pw *ServerWatcher) Start(processHandle ProcessHandle, processInfo ProcessI
 	}()
 
 	pw.logger.Info("server watcher started")
-	return nil
 }
 
 // Idempotent and non-blocking. Use Wait() to block until shutdown is complete.
@@ -130,6 +139,16 @@ func (pw *ServerWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 	}
 
 	return nil
+}
+
+// Returns an error if the process is not running.
+func NewDefaultProcessHandle(proc *os.Process) (*DefaultProcessHandle, error) {
+	procInfo, err := process.NewProcess(int32(proc.Pid))
+	if err != nil {
+		return nil, err
+	}
+
+	return &DefaultProcessHandle{proc: proc, procInfo: procInfo}, nil
 }
 
 func NewServerWatcher(

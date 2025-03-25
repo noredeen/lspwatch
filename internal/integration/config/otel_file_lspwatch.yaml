@@ -6,7 +6,5 @@ tags:
   - ram
   - user
 opentelemetry:
-  protocol: grpc
-  endpoint: localhost:4317
-  tls:
-    insecure: true
+  protocol: file
+  directory: .

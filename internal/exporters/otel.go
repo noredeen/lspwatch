@@ -336,7 +336,7 @@ func newResource() (*resource.Resource, error) {
 	return resource.Merge(resource.Default(),
 		resource.NewWithAttributes(semconv.SchemaURL,
 			semconv.ServiceName("lspwatch"),
-			semconv.ServiceVersion("0.1.0"),
+			// semconv.ServiceVersion("0.1.0"),
 			semconv.DeploymentEnvironment("production"),
 		),
 	)
@@ -359,7 +359,7 @@ func newOTelMeterProvider(exporter sdkmetric.Exporter, res *resource.Resource) *
 
 func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (*otlpmetricgrpc.Exporter, error) {
 	options := []otlpmetricgrpc.Option{
-		otlpmetricgrpc.WithEndpointURL(cfg.MetricsEndpointURL),
+		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
 		otlpmetricgrpc.WithHeaders(cfg.Headers),
 	}
 
@@ -398,7 +398,7 @@ func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (*otlpmetricgrp
 
 func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (*otlpmetrichttp.Exporter, error) {
 	options := []otlpmetrichttp.Option{
-		otlpmetrichttp.WithEndpointURL(cfg.MetricsEndpointURL),
+		otlpmetrichttp.WithEndpoint(cfg.Endpoint),
 		otlpmetrichttp.WithHeaders(cfg.Headers),
 	}
 

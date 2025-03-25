@@ -14,14 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/noredeen/lspwatch/internal/config"
 	"github.com/noredeen/lspwatch/internal/core"
 	"github.com/noredeen/lspwatch/internal/exporters"
 	lspwatch_io "github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
 	"github.com/shirou/gopsutil/v4/mem"
-	"github.com/shirou/gopsutil/v4/process"
 	"github.com/sirupsen/logrus"
 )
 
@@ -82,18 +80,13 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 
 	logger.Infof("launched language server process (PID=%v)", serverCmd.Process.Pid)
 
-	processHandle := serverCmd.Process
-	processInfo, err := process.NewProcess(int32(processHandle.Pid))
+	processHandle, err := core.NewDefaultProcessHandle(serverCmd.Process)
 	if err != nil {
-		return fmt.Errorf("error creating process info provider: %v", err)
+		return fmt.Errorf("error creating process handle: %v", err)
 	}
 
 	proxyHandler.Start()
-	err = serverWatcher.Start(processHandle, processInfo)
-	if err != nil {
-		logger.Errorf("fatal error starting server watcher: %v", err)
-		os.Exit(1)
-	}
+	serverWatcher.Start(processHandle)
 	lspwatchInstance.startInterruptListener()
 	lspwatchInstance.startStderrRecorder()
 
@@ -226,15 +219,6 @@ func NewLspwatchInstance(
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
-	if cfg.EnvFilePath != "" {
-		err = godotenv.Load(cfg.EnvFilePath)
-		if err != nil {
-			msg := fmt.Sprintf("error loading .env file: %v", err)
-			logger.Error(msg)
-			return LspwatchInstance{}, errors.New(msg)
-		}
-	}
-
 	serverCmd := exec.Command(serverShellCommand, args...)
 	errPipe, err := serverCmd.StderrPipe()
 	if err != nil {
@@ -270,6 +254,11 @@ func NewLspwatchInstance(
 		logger.Error(msg)
 		return LspwatchInstance{}, errors.New(msg)
 	}
+
+	if cfg.Project != "" {
+		globalTags = append(globalTags, telemetry.NewTag("project", telemetry.TagValue(cfg.Project)))
+	}
+
 	exporter.SetGlobalTags(globalTags...)
 
 	requestMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableLSPMetrics)
@@ -354,7 +343,7 @@ func getConfig(path string) (config.LspwatchConfig, error) {
 
 	cfg, err := config.ReadLspwatchConfig(fileBytes)
 	if err != nil {
-		return config.LspwatchConfig{}, fmt.Errorf("error parsing lspwatch config: %v", err)
+		return config.LspwatchConfig{}, fmt.Errorf("error reading lspwatch config: %v", err)
 	}
 
 	return cfg, nil

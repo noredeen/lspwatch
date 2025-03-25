@@ -42,6 +42,7 @@ type LSPReadResult struct {
 	Err     error
 }
 
+// TODO: Unit tests.
 type SingleUseDiverterPipe struct {
 	source            io.Reader
 	firstDestination  io.Writer

@@ -47,23 +47,22 @@
 
 Users can optionally choose to tag metrics with:
 
-* `language_server`: name of language server.
-r binary (e.g `clangd`).
+* `language_server`: name of language server binary (e.g `clangd`).
 * `user`: username on the machine.
 * `os`: operating system.
 * `ram`: total amount of RAM on the machine.
 
 ## Why?
 
-If you work on a sufficiently complex typed codebase, you'll find that language support features within modern editors like code completion, diagnostics, suggestions, etc. can become considerably slow. Much of the universally hated sluggishness of code editors is due in large part to these advanced language features. To provide codebase-wide awarness, editors rely on language servers to provide answers to code queries by scanning the codebase and maintaining internal state representations.
+If you work on a sufficiently complex typed codebase, you'll find that language support features within modern editors like code completion, diagnostics, suggestions, etc. can become considerably slow. Much of the universally hated sluggishness of code editors is due in large part to these language features. To provide codebase-wide awarness, editors rely on language servers to provide answers to code queries by scanning the codebase and maintaining internal state representations.
 
 To quantify this sluggishness, we can monitor how editors interact with language servers. The duration of an LSP request can tell us how responsive an editor feels. More specifically, this metric can tell us how much (likely idle) time the developer spends waiting for their editor to respond to their edit.
 
-What we essentially have is a **real-time, constant, and accurate indicator of developer experience and productivity**. I have worked on DevEx teams with access to this kind of data--it's proven essential for managing the local development experience at scale.
+What we essentially have is a **real-time, constant, and accurate indicator of developer experience and productivity**. I have worked on DevEx teams with access to this kind of data, and it's proven essential for managing the local development experience at scale.
 
 With `lspwatch`, you get metrics related to the responsiveness of your editor, tagged with contextual details to help with analysis. You can split your metrics by machine configuration, operating system, even down to the user, and more! `lspwatch` can help you with:
 
-* **Monitoring and improving modularization in your codebase**: The nature of the dependency graph will impact the performance of language servers.
+* **Evaluating and improving modularization in your codebase**: The nature of the dependency graph will typically impact language server performance.
 * **Monitoring the impact of language version upgrades on the coding experience**: Any immediate improvements or regressions in language server performance can be noticed and acted on quickly.
 * **Identifying potentially misconfigured local development setups or faulty machines**.
 * **Spotting general usage trends in code editors**.
