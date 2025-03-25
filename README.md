@@ -12,6 +12,9 @@
       <img alt="Shows my svg">
     </picture>
   </div>
+  <a href="https://github.com/noredeen/lspwatch/actions/workflows/ci.yml" >
+    <img src="https://img.shields.io/github/actions/workflow/status/noredeen/lspwatch/ci.yml?label=CI&style=flat&labelColor=282c34&logo=github">
+  </a>
   <a href="https://codecov.io/gh/noredeen/lspwatch" > 
     <img src="https://codecov.io/gh/noredeen/lspwatch/graph/badge.svg?token=M174K60D0U"/> 
   </a>
@@ -125,6 +128,44 @@ lspwatch -- gopls "$@"
 ## Configuration
 
 `lspwatch` can be configured with a YAML file. Use the `--config` or `-c` flag to specify the path.
+
+
+| YAML field         | Type        |           Required?           | ENV variable extraction? | Description                                                                                                                                                                                                                                                                                                                                                        |
+|--------------------|----------|:-----------------------------:|:------------------------:|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `project`          | string   |               ✓               |             ✗            | Name of the project/repository the language server will operate against. All metrics will be tagged with this value.                                                                                                                                                                                                                                               |
+| `exporter`         | string   |               ✓               |             ✗            | Either: `datadog` or `opentelemetry`.                                                                                                                                                                                                                                                                                                                              |
+| `env_file`         | string   |               ✗               |             ✗            | Path to a `.env` file containing environment variables relevant to `lspwatch`.                                                                                                                                                                                                                                                                                     |
+| `metrics`          | []string |               ✗               |             ✗            | The metrics emitted by `lspwatch`. Default: all available metrics. Options: `request.duration`, `server.rss`.                                                                                                                                                                                                                                                      |
+| `tags`             | []string |               ✗               |             ✗            | **Additional** tags to include with all metrics. Default: none. Options: `user`, `os`, `language_server`, `ram`.                                                                                                                                                                                                                                                   |
+| `metered_requests` | []string |               ✗               |             ✗            | Method names of the LSP requests to monitor/measure. Default: `initialize`, `textDocument/references`, `textDocument/hover`, `textDocument/documentSymbols`, `textDocument/completion`, `textDocument/diagnostic`, `textDocument/signatureHelp`. Options: [LSP docs](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/). |
+| `polling_interval` | int      |               ✗               |             ✗            | Interval in seconds for polling language server stats (e.g RSS). Default: 5s. Options: 1 <= t <= 1000.                                                                                                                                                                                                                                                             |
+| `opentelemetry`    | object   | If exporter is `opentelemtry` |                          |                                                                                                                                                                                                                                                                                                                                                                    |
+| `datadog`          | object   |    If exporter is `datadog`   |                          |                                                                                                                                                                                                                                                                                                                                                                    |
+
+### OpenTelemetry
+
+| YAML field    |              Type              |            Required?            | ENV variable extraction? | Description                                                                       |
+|---------------|:------------------------------:|:-------------------------------:|:------------------------:|-----------------------------------------------------------------------------------|
+| `protocol`    |             string             |                ✓                |             ✗            | The protocol used by the OpenTelemetry exporter. Options: `grpc`, `http`, `file`. |
+| `directory`   |             string             |      If protocol is `file`      |             ✗            | The directory where `lspwatch` will store OpenTelemetry metrics files.            |
+| `endpoint`    |             string             | If protocol is `grpc` or `http` |             ✗            | The OpenTelemetry endpoint, without a path or scheme. Example: `localhost:4317`.  |
+| `tls`         |             object             |                ✗                |             ✗            | TLS configuration for the connection to the OpenTelemetry endpoint.               |
+| `compression` |             string             |                ✗                |             ✗            | Compression scheme for `grpc` and `http` requests. Options: `gzip`.               |
+| `headers`     | object; string key-value pairs |                ✗                |             ✓            | Headers to include in the `grpc` and `http` requests.                             |
+| `timeout`     |               int              |                ✗                |             ✗            | `grpc` and `http` request timeout.                                                |
+
+### Datadog
+
+| YAML field               |   Type  | Required? | ENV variable extraction? | Description                                                                                      |
+|--------------------------|:-------:|:---------:|:------------------------:|--------------------------------------------------------------------------------------------------|
+| `client_api_key`         |  string |     ✓     |             ✓            | Value for Datadog authentication.                                                                |
+| `client_app_key`         |  string |     ✓     |             ✓            | Value for Datadog authentication.                                                                |
+| `exporter_batch_size`    |   int   |     ✗     |             ✗            | The max number of metrics batched by the exporter before flushing to Datadog.                    |
+| `exporter_batch_timeout` |   int   |     ✗     |             ✗            | The max time between batch flushes to Datadog.                                                   |
+| `site`                   | string  |     ✗     |             ✗            | Datadog site. More info in the [Datadog docs](https://docs.datadoghq.com/getting_started/site/). |
+| `disable_compression`    | boolean |     ✗     |             ✗            | Disables HTTP request compression, which is enabled by default.                                  |
+
+### TLS
 
 TODO
 

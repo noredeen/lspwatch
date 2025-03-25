@@ -12,6 +12,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var defaultPollingInterval = 5 * time.Second
+
 type ProcessHandle interface {
 	Wait() (*os.ProcessState, error)
 	MemoryInfo() (*process.MemoryInfoStat, error)
@@ -156,7 +158,7 @@ func NewServerWatcher(
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
 ) (*ServerWatcher, error) {
-	pollingInterval := 5 * time.Second
+	pollingInterval := defaultPollingInterval
 	if cfg.PollingInterval != nil {
 		pollingInterval = time.Duration(*cfg.PollingInterval) * time.Second
 	}
