@@ -12,27 +12,40 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var defaultPollingInterval = 5 * time.Second
+
 type ProcessHandle interface {
 	Wait() (*os.ProcessState, error)
-}
-
-type ProcessInfo interface {
 	MemoryInfo() (*process.MemoryInfoStat, error)
 }
 
-type ProcessWatcher struct {
+type DefaultProcessHandle struct {
+	proc     *os.Process
+	procInfo *process.Process
+}
+
+func (ph *DefaultProcessHandle) Wait() (*os.ProcessState, error) {
+	return ph.proc.Wait()
+}
+
+func (ph *DefaultProcessHandle) MemoryInfo() (*process.MemoryInfoStat, error) {
+	return ph.procInfo.MemoryInfo()
+}
+
+type ServerWatcher struct {
 	metricsRegistry telemetry.MetricsRegistry
 	pollingInterval time.Duration
 	processExited   bool
 
 	processExitedChan chan *os.ProcessState
 	incomingShutdown  chan struct{}
+	shutdownOnce      sync.Once
 	logger            *logrus.Logger
 	mu                sync.Mutex
 	wg                *sync.WaitGroup
 }
 
-func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo ProcessInfo) error {
+func (pw *ServerWatcher) Start(processHandle ProcessHandle) {
 	// I'm ok with letting this goroutine run indefinitely (for now).
 	go func() {
 		state, err := processHandle.Wait()
@@ -68,7 +81,7 @@ func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo Process
 				pw.mu.Unlock()
 
 				if pw.metricsRegistry.IsMetricEnabled(telemetry.ServerRSS) {
-					memoryInfo, err := processInfo.MemoryInfo()
+					memoryInfo, err := processHandle.MemoryInfo()
 					if err != nil {
 						pw.logger.Errorf("failed to get memory info: %v", err)
 						continue
@@ -89,30 +102,28 @@ func (pw *ProcessWatcher) Start(processHandle ProcessHandle, processInfo Process
 		}
 	}()
 
-	pw.logger.Info("process watcher started")
-	return nil
+	pw.logger.Info("server watcher started")
 }
 
 // Idempotent and non-blocking. Use Wait() to block until shutdown is complete.
-func (pw *ProcessWatcher) Shutdown() error {
-	if pw.incomingShutdown != nil {
+func (pw *ServerWatcher) Shutdown() error {
+	pw.shutdownOnce.Do(func() {
 		close(pw.incomingShutdown)
-		pw.incomingShutdown = nil
-	}
+	})
 
 	return nil
 }
 
-func (pw *ProcessWatcher) Wait() {
+func (pw *ServerWatcher) Wait() {
 	pw.wg.Wait()
-	pw.logger.Info("process watcher monitors shutdown complete")
+	pw.logger.Info("server watcher monitors shutdown complete")
 }
 
-func (pw *ProcessWatcher) ProcessExited() chan *os.ProcessState {
+func (pw *ServerWatcher) ProcessExited() chan *os.ProcessState {
 	return pw.processExitedChan
 }
 
-func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
+func (pw *ServerWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 	// Default behavior if `metrics` is not specified in the config
 	if cfg.Metrics == nil {
 		err := pw.metricsRegistry.EnableMetric(telemetry.ServerRSS)
@@ -132,21 +143,32 @@ func (pw *ProcessWatcher) enableMetrics(cfg *config.LspwatchConfig) error {
 	return nil
 }
 
-func NewProcessWatcher(
+// Returns an error if the process is not running.
+func NewDefaultProcessHandle(proc *os.Process) (*DefaultProcessHandle, error) {
+	procInfo, err := process.NewProcess(int32(proc.Pid))
+	if err != nil {
+		return nil, err
+	}
+
+	return &DefaultProcessHandle{proc: proc, procInfo: procInfo}, nil
+}
+
+func NewServerWatcher(
 	metricsRegistry telemetry.MetricsRegistry,
 	cfg *config.LspwatchConfig,
 	logger *logrus.Logger,
-) (*ProcessWatcher, error) {
-	pollingInterval := 5 * time.Second
+) (*ServerWatcher, error) {
+	pollingInterval := defaultPollingInterval
 	if cfg.PollingInterval != nil {
 		pollingInterval = time.Duration(*cfg.PollingInterval) * time.Second
 	}
 
-	pw := ProcessWatcher{
+	pw := ServerWatcher{
 		metricsRegistry:   metricsRegistry,
 		pollingInterval:   pollingInterval,
 		processExitedChan: make(chan *os.ProcessState),
 		incomingShutdown:  make(chan struct{}),
+		shutdownOnce:      sync.Once{},
 		mu:                sync.Mutex{},
 		logger:            logger,
 		wg:                &sync.WaitGroup{},

@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -52,7 +51,8 @@ func (m *mockMetricsProcessor) processBatch(
 	)
 }
 
-func (m *mockMetricsProcessor) setGlobalTags(tags ...telemetry.Tag) {}
+func (m *mockMetricsProcessor) setGlobalTags(tags ...telemetry.Tag)                 {}
+func (m *mockMetricsProcessor) addMetricUnitMapping(metricName string, unit string) {}
 
 func (m *mockMetricsApi) SubmitMetrics(
 	ctx context.Context,
@@ -77,13 +77,11 @@ func (m *mockMetricsApi) SubmitMetrics(
 func TestGetDatadogContext(t *testing.T) {
 	apiKey := "test-api-key"
 	appKey := "test-app-key"
-	os.Setenv("TEST_DATADOG_API_KEY", apiKey)
-	os.Setenv("TEST_DATADOG_APP_KEY", appKey)
 
 	t.Run("no site", func(t *testing.T) {
 		cfg := &config.DatadogConfig{
-			ClientApiKeyEnvVar: "TEST_DATADOG_API_KEY",
-			ClientAppKeyEnvVar: "TEST_DATADOG_APP_KEY",
+			ClientApiKey: apiKey,
+			ClientAppKey: appKey,
 		}
 
 		ctx := GetDatadogContext(cfg)
@@ -116,9 +114,9 @@ func TestGetDatadogContext(t *testing.T) {
 	t.Run("with site", func(t *testing.T) {
 		site := "test-site"
 		cfg := &config.DatadogConfig{
-			ClientApiKeyEnvVar: "TEST_DATADOG_API_KEY",
-			ClientAppKeyEnvVar: "TEST_DATADOG_APP_KEY",
-			Site:               "test-site",
+			ClientApiKey: "TEST_DATADOG_API_KEY",
+			ClientAppKey: "TEST_DATADOG_APP_KEY",
+			Site:         "test-site",
 		}
 
 		ctx := GetDatadogContext(cfg)
@@ -134,6 +132,14 @@ func TestGetDatadogContext(t *testing.T) {
 }
 
 func TestDefaultMetricsProcessor_getTimeseries(t *testing.T) {
+	processor := &defaultMetricsProcessor{
+		metricsApiClient: &mockMetricsApi{},
+		datadogContext:   context.Background(),
+		globalTags: []telemetry.Tag{
+			telemetry.NewTag("global_tag", "global_value"),
+		},
+	}
+
 	batch := []telemetry.MetricRecording{
 		telemetry.NewMetricRecording(
 			"test.first_metric",
@@ -162,9 +168,7 @@ func TestDefaultMetricsProcessor_getTimeseries(t *testing.T) {
 		),
 	}
 
-	timeseries := getTimeseries(batch, []telemetry.Tag{
-		telemetry.NewTag("global_tag", "global_value"),
-	})
+	timeseries := processor.getTimeseries(batch)
 
 	if len(timeseries) != 3 {
 		t.Fatalf("expected getTimeseries to return 3 timeseries, got %d", len(timeseries))
@@ -258,8 +262,8 @@ func TestDefaultMetricsProcessor_processBatch(t *testing.T) {
 func TestNewDatadogMetricsExporter(t *testing.T) {
 	t.Run("default timeout and batch size", func(t *testing.T) {
 		cfg := &config.DatadogConfig{
-			ClientApiKeyEnvVar: "TEST_DATADOG_API_KEY",
-			ClientAppKeyEnvVar: "TEST_DATADOG_APP_KEY",
+			ClientApiKey: "TEST_DATADOG_API_KEY",
+			ClientAppKey: "TEST_DATADOG_APP_KEY",
 		}
 
 		datadogCtx := GetDatadogContext(cfg)
@@ -281,10 +285,10 @@ func TestNewDatadogMetricsExporter(t *testing.T) {
 		batchSize := 10
 		batchTimeout := 20
 		cfg := &config.DatadogConfig{
-			ClientApiKeyEnvVar: "TEST_DATADOG_API_KEY",
-			ClientAppKeyEnvVar: "TEST_DATADOG_APP_KEY",
-			BatchSize:          &batchSize,
-			BatchTimeout:       &batchTimeout,
+			ClientApiKey: "TEST_DATADOG_API_KEY",
+			ClientAppKey: "TEST_DATADOG_APP_KEY",
+			BatchSize:    &batchSize,
+			BatchTimeout: &batchTimeout,
 		}
 
 		datadogCtx := GetDatadogContext(cfg)
@@ -306,9 +310,22 @@ func TestNewDatadogMetricsExporter(t *testing.T) {
 func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 	voidLogger := logrus.New()
 	voidLogger.SetOutput(io.Discard)
-
 	batchSize := 10
 	batchTimeout := 20 * time.Second
+
+	t.Run("no errors on double start", func(t *testing.T) {
+		t.Parallel()
+		metricsExporter := createMetricsExporter(t, batchSize, batchTimeout)
+		err := metricsExporter.Start()
+		if err != nil {
+			t.Fatalf("expected first Start() not to return an error, got %v", err)
+		}
+
+		err = metricsExporter.Start()
+		if err != nil {
+			t.Fatalf("expected second Start() not to return an error, got %v", err)
+		}
+	})
 	t.Run("shutdown when not started", func(t *testing.T) {
 		t.Parallel()
 		metricsExporter := createMetricsExporter(t, batchSize, batchTimeout)
@@ -327,7 +344,6 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 	t.Run("shutdown when already running", func(t *testing.T) {
 		t.Parallel()
 		metricsExporter := createMetricsExporter(t, batchSize, batchTimeout)
-		metricsExporter.logger.SetOutput(io.Discard)
 		err := metricsExporter.Start()
 		if err != nil {
 			t.Fatalf("expected Start not to return an error, got %v", err)
@@ -372,6 +388,26 @@ func TestDatadogMetricsExporter_StartShutdown(t *testing.T) {
 }
 
 func TestDatadogMetricsExporter(t *testing.T) {
+	t.Run("EmitMetric before Start()", func(t *testing.T) {
+		t.Parallel()
+		batchSize := 10
+		batchTimeout := 20 * time.Second
+		metricsExporter := createMetricsExporter(t, batchSize, batchTimeout)
+		metricsExporter.logger.SetOutput(io.Discard)
+		err := metricsExporter.EmitMetric(
+			telemetry.NewMetricRecording(
+				"test.metric",
+				time.Now().Unix(),
+				1.0,
+				telemetry.NewTag("tag1", "value1"),
+			),
+		)
+
+		if err == nil {
+			t.Fatalf("expected EmitMetric to return an error, got nil")
+		}
+	})
+
 	t.Run("full batch before timeout", func(t *testing.T) {
 		t.Parallel()
 		voidLogger := logrus.New()
@@ -380,6 +416,7 @@ func TestDatadogMetricsExporter(t *testing.T) {
 		batchSize := 10
 		batchTimeout := 20 * time.Second
 		processor := mockMetricsProcessor{}
+		// TODO: Use createMetricsExporter()
 		metricsExporter := DatadogMetricsExporter{
 			metricsChan:  make(chan telemetry.MetricRecording),
 			batchSize:    batchSize,

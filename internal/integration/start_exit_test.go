@@ -13,23 +13,45 @@ import (
 // TODO: Proper test cleanup (for when tests fail and lspwatch doesn't shut down cleanly).
 
 func TestInvalidCommand(t *testing.T) {
-	t.Parallel()
-	logDir := testutil.GenerateRandomLogDirName()
-	// No language server command provided.
-	cmd := testutil.PrepareIntegrationTest(t, "--logdir", logDir)
+	t.Run("no command provided", func(t *testing.T) {
+		t.Parallel()
+		logDir := testutil.GenerateRandomLogDirName()
+		// No language server command provided.
+		cmd := testutil.PrepareIntegrationTest(t, "--logdir", logDir)
 
-	err := cmd.Start()
-	if err != nil {
-		t.Fatalf("error starting lspwatch: %v", err)
-	}
+		err := cmd.Start()
+		if err != nil {
+			t.Fatalf("error starting lspwatch: %v", err)
+		}
 
-	testutil.AssertExitsBefore(t, "lspwatch", func() {
-		cmd.Process.Wait()
-	}, 3*time.Second)
+		testutil.AssertExitsBefore(t, "lspwatch", func() {
+			cmd.Process.Wait()
+		}, 3*time.Second)
 
-	if cmd.ProcessState.ExitCode() == 0 {
-		t.Error("expected non-zero exit code")
-	}
+		if cmd.ProcessState.ExitCode() == 0 {
+			t.Error("expected non-zero exit code")
+		}
+	})
+
+	t.Run("nonexistent command", func(t *testing.T) {
+		t.Parallel()
+		logDir := testutil.GenerateRandomLogDirName()
+		// No language server command provided.
+		cmd := testutil.PrepareIntegrationTest(t, "--logdir", logDir, "--", "nonexistent_command")
+
+		err := cmd.Start()
+		if err != nil {
+			t.Fatalf("error starting lspwatch: %v", err)
+		}
+
+		testutil.AssertExitsBefore(t, "lspwatch", func() {
+			cmd.Process.Wait()
+		}, 3*time.Second)
+
+		if cmd.ProcessState.ExitCode() == 0 {
+			t.Error("expected non-zero exit code")
+		}
+	})
 }
 
 func TestBadConfigFile(t *testing.T) {
@@ -269,7 +291,7 @@ func TestCommandMode(t *testing.T) {
 
 		testutil.AssertExitsBefore(t, "lspwatch", func() {
 			cmd.Process.Wait()
-		}, 8*time.Second)
+		}, 2*time.Second)
 	})
 
 	t.Run("automatic commmand mode detection", func(t *testing.T) {
@@ -307,6 +329,6 @@ func TestCommandMode(t *testing.T) {
 
 		testutil.AssertExitsBefore(t, "lspwatch", func() {
 			cmd.Process.Wait()
-		}, 8*time.Second)
+		}, 2*time.Second)
 	})
 }

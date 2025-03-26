@@ -1,3 +1,4 @@
+project: lspwatch
 exporter: opentelemetry
 tags:
   - os
@@ -6,6 +7,6 @@ tags:
   - user
 opentelemetry:
   protocol: http
-  metrics_endpoint_url: http://localhost:4318/v1/metrics
+  endpoint: localhost:4318
   tls:
     insecure: true

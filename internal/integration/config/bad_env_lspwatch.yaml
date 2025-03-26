@@ -1,3 +1,4 @@
+project: lspwatch
 exporter: datadog
 env_file: /path/to/nonexistent/file
 tags:

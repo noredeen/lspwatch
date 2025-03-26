@@ -4,15 +4,15 @@ import (
 	"fmt"
 )
 
-// TODO: I am not so sure about my decision to use async Start/Shutdown.
 type MetricsExporter interface {
 	RegisterMetric(registration MetricRegistration) error
+	// Must be safe to call before Start() is called.
 	EmitMetric(metric MetricRecording) error
 	SetGlobalTags(tags ...Tag)
 
 	// Must be idempotent and non-blocking. Use Wait() to block until shutdown is complete.
 	Shutdown() error
-	// Runs the exporter asynchronously.
+	// Must be idempotent and non-blocking.
 	Start() error
 	// Blocks until the exporter has flushed all held metrics and shut down.
 	Wait()
@@ -60,7 +60,8 @@ type MetricRegistration struct {
 	Kind        MetricKind
 	Name        string
 	Description string
-	Unit        string
+	OTelUnit    string
+	DatadogUnit string
 }
 
 type MetricRecording struct {

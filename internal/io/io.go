@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +42,7 @@ type LSPReadResult struct {
 	Err     error
 }
 
+// TODO: Unit tests.
 type SingleUseDiverterPipe struct {
 	source            io.Reader
 	firstDestination  io.Writer
@@ -234,7 +236,7 @@ func NewSingleUseDiverterPipe(
 func checkDir(path string) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
 		}
 		return false, err

@@ -5,9 +5,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/noredeen/lspwatch/internal/config"
@@ -25,6 +27,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+// TODO: Make these configurable.
 const (
 	otlpHandshakeTimeout = 7 * time.Second
 	emitMetricTimeout    = 4 * time.Second
@@ -40,6 +43,11 @@ type MetricsOTelExporter struct {
 	globalTags          []telemetry.Tag
 	shutdownCtx         context.Context
 	shutdownCancel      context.CancelFunc
+	mu                  sync.Mutex
+	running             bool
+
+	logger  *logrus.Logger
+	logFile *os.File
 }
 
 // Why not the stdoutmetric exporter from otel/exporters?
@@ -75,6 +83,12 @@ func (ome *MetricsOTelExporter) RegisterMetric(registration telemetry.MetricRegi
 }
 
 func (ome *MetricsOTelExporter) EmitMetric(metricRecording telemetry.MetricRecording) error {
+	ome.mu.Lock()
+	defer ome.mu.Unlock()
+	if !ome.running {
+		return errors.New("otel metrics exporter not running")
+	}
+
 	histogram, ok := ome.histograms[metricRecording.Name]
 	if !ok {
 		return fmt.Errorf("histogram not found for metric: %s", metricRecording.Name)
@@ -97,34 +111,59 @@ func (ome *MetricsOTelExporter) EmitMetric(metricRecording telemetry.MetricRecor
 }
 
 func (ome *MetricsOTelExporter) Start() error {
+	ome.mu.Lock()
+	defer ome.mu.Unlock()
+
+	if ome.running {
+		return fmt.Errorf("exporter already running")
+	}
+
 	meterProvider := newOTelMeterProvider(ome.otelExporter, &ome.resource)
 	meter := meterProvider.Meter("lspwatch")
 	ome.meterProvider = meterProvider
 	ome.meter = meter
-
 	err := ome.createInstrumentsFromRegistrations()
 	if err != nil {
 		return err
 	}
 
+	ome.logger.Info("started OTel metrics exporter")
+	ome.running = true
 	return nil
 }
 
-// NOTE: Might have to rework this into invoking a function stored in the struct.
 func (ome *MetricsOTelExporter) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ome.mu.Lock()
+	defer ome.mu.Unlock()
+
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if ome.running {
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		go ome.meterProvider.Shutdown(ctx)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+		// Store a canceled context so Wait() returns immediately.
+		cancel()
+	}
+
 	ome.shutdownCtx = ctx
 	ome.shutdownCancel = cancel
-	go ome.meterProvider.Shutdown(ome.shutdownCtx)
 	return nil
 }
 
 func (ome *MetricsOTelExporter) Wait() {
 	<-ome.shutdownCtx.Done()
 	ome.shutdownCancel()
+	ome.logger.Info("OTel metrics exporter shutdown complete")
 }
 
 func (ome *MetricsOTelExporter) Release() error {
+	err := ome.logFile.Close()
+	if err != nil {
+		return fmt.Errorf("error closing otel log file: %v", err)
+	}
+
 	return nil
 }
 
@@ -140,7 +179,7 @@ func (ome *MetricsOTelExporter) createInstrumentsFromRegistrations() error {
 			hist, err := ome.meter.Float64Histogram(
 				registration.Name,
 				metric.WithDescription(registration.Description),
-				metric.WithUnit(registration.Unit),
+				metric.WithUnit(registration.OTelUnit),
 			)
 			if err != nil {
 				return err
@@ -241,7 +280,7 @@ func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logDir string) (*Me
 		return nil, err
 	}
 
-	logger, _, err := io.CreateLogger(logDir, "otel.log")
+	logger, loggerFile, err := io.CreateLogger(logDir, "otel.log")
 	if err != nil {
 		return nil, fmt.Errorf("error creating otel logger: %v", err)
 	}
@@ -250,6 +289,8 @@ func NewMetricsOTelExporter(cfg *config.OpenTelemetryConfig, logDir string) (*Me
 		resource:     *res,
 		otelExporter: &loggingExporter{wrapped: metricExporter, logger: logger},
 		histograms:   make(map[string]metric.Float64Histogram),
+		logger:       logger,
+		logFile:      loggerFile,
 	}, nil
 }
 
@@ -280,7 +321,6 @@ func newTLSConfig(cfg *config.TLSConfig) (*tls.Config, error) {
 	return &tlsCfg, nil
 }
 
-// TODO: File rotation.
 func newFileExporter(cfg *config.OpenTelemetryConfig) (*fileExporter, error) {
 	path := filepath.Join(cfg.Directory, "lspwatch_metrics.json")
 
@@ -296,7 +336,7 @@ func newResource() (*resource.Resource, error) {
 	return resource.Merge(resource.Default(),
 		resource.NewWithAttributes(semconv.SchemaURL,
 			semconv.ServiceName("lspwatch"),
-			semconv.ServiceVersion("0.1.0"),
+			// semconv.ServiceVersion("0.1.0"),
 			semconv.DeploymentEnvironment("production"),
 		),
 	)
@@ -319,7 +359,7 @@ func newOTelMeterProvider(exporter sdkmetric.Exporter, res *resource.Resource) *
 
 func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (*otlpmetricgrpc.Exporter, error) {
 	options := []otlpmetricgrpc.Option{
-		otlpmetricgrpc.WithEndpointURL(cfg.MetricsEndpointURL),
+		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
 		otlpmetricgrpc.WithHeaders(cfg.Headers),
 	}
 
@@ -358,7 +398,7 @@ func newOTLPMetricsGRPCExporter(cfg *config.OpenTelemetryConfig) (*otlpmetricgrp
 
 func newOTLPMetricsHTTPExporter(cfg *config.OpenTelemetryConfig) (*otlpmetrichttp.Exporter, error) {
 	options := []otlpmetrichttp.Option{
-		otlpmetrichttp.WithEndpointURL(cfg.MetricsEndpointURL),
+		otlpmetrichttp.WithEndpoint(cfg.Endpoint),
 		otlpmetrichttp.WithHeaders(cfg.Headers),
 	}
 

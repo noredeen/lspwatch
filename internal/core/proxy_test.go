@@ -146,6 +146,8 @@ func TestProxyHandler(t *testing.T) {
 
 			msgFromClient = "Content-Length: 71\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"initialize\", \"params\": {\"processId\": 22}}"
 			sendMessage(t, clientToProxy, msgFromClient)
+			<-proxyHandler.SwitchedToProxyMode()
+			proxyHandler.ConfirmProxyMode()
 			assertPropagation(t, "-> | initialize request", proxyToServer, msgFromClient)
 
 			msgFromServer = "Content-Length: 72\r\n\r\n{\"jsonrpc\": \"2.0\", \"result\": {\"capabilities\": {\"positionEncoding\": 22}}}"
@@ -220,6 +222,8 @@ func TestProxyHandler(t *testing.T) {
 			// No jsonrpc field.
 			msgFromClient = "Content-Length: 110\r\n\r\n{\"id\": 1, \"method\": \"textDocument/references\", \"params\": {\"textDocument\": {\"uri\": \"file:///path/to/file.ts\"}}}"
 			sendMessage(t, clientToProxy, msgFromClient)
+			<-proxyHandler.SwitchedToProxyMode()
+			proxyHandler.ConfirmProxyMode()
 			assertPropagation(t, "-> | missing field in textDocument/references request", proxyToServer, msgFromClient)
 
 			// Empty JSON.
@@ -257,6 +261,8 @@ func TestProxyHandler(t *testing.T) {
 			msgFromClient = "Content-Length: 128\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"textDocument/references\", \"params\": {\"textDocument\": {\"uri\": \"file:///path/to/file.ts\"}}}"
 			sendMessage(t, clientToProxy, msgFromClient)
 			buf := make([]byte, len(msgFromClient)+100)
+			<-proxyHandler.SwitchedToProxyMode()
+			proxyHandler.ConfirmProxyMode()
 			proxyToServer.Read(buf)
 
 			time.Sleep(500 * time.Millisecond)
@@ -268,6 +274,7 @@ func TestProxyHandler(t *testing.T) {
 	})
 
 	t.Run("language server shutdown process is correctly handled", func(t *testing.T) {
+		// Sus
 		t.Run("an exit message from the client is intercepted and raised to caller", func(t *testing.T) {
 			t.Parallel()
 			metricsRegistry := mockProxyMetricsRegistry{}
@@ -293,6 +300,9 @@ func TestProxyHandler(t *testing.T) {
 			msgReader.WriteTo(clientToProxy)
 			buf := make([]byte, len(msgFromClient)+100)
 
+			<-proxyHandler.SwitchedToProxyMode()
+			proxyHandler.ConfirmProxyMode()
+
 			// Read should block since no data is sent to the server.
 			testutil.AssertDoesNotExitBefore(
 				t, "reading data sent from proxy to server",
@@ -309,6 +319,7 @@ func TestProxyHandler(t *testing.T) {
 		})
 
 		t.Run("a shutdown instruction from the caller causes exit LSP request to propagate to the server", func(t *testing.T) {
+			// Sus
 			t.Parallel()
 			metricsRegistry := mockProxyMetricsRegistry{}
 			logger := logrus.New()
@@ -327,6 +338,9 @@ func TestProxyHandler(t *testing.T) {
 			msgFromClient := "Content-Length: 36\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"exit\"}"
 			msgReader := strings.NewReader(msgFromClient)
 			msgReader.WriteTo(clientToProxy)
+
+			<-proxyHandler.SwitchedToProxyMode()
+			proxyHandler.ConfirmProxyMode()
 
 			// There should be no need for the caller to monitor the shutdown channel.
 			time.Sleep(200 * time.Millisecond)
@@ -389,6 +403,8 @@ func TestProxyHandler(t *testing.T) {
 		msgFromClient = "Content-Length: 128\r\n\r\n{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"textDocument/references\", \"params\": {\"textDocument\": {\"uri\": \"file:///path/to/file.ts\"}}}"
 		sendMessage(t, clientToProxy, msgFromClient)
 		buf = make([]byte, len(msgFromClient)+100)
+		<-proxyHandler.SwitchedToProxyMode()
+		proxyHandler.ConfirmProxyMode()
 		proxyToServer.Read(buf)
 
 		time.Sleep(500 * time.Millisecond)

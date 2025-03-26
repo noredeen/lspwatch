@@ -24,11 +24,8 @@ type mockProcessHandle struct {
 	done chan struct{}
 }
 
-type mockProcessInfo struct{}
-
 var _ telemetry.MetricsRegistry = &mockWatcherMetricsRegistry{}
 var _ ProcessHandle = &mockProcessHandle{}
-var _ ProcessInfo = &mockProcessInfo{}
 
 func (m *mockWatcherMetricsRegistry) EnableMetric(metric telemetry.AvailableMetric) error {
 	m.enableMetricCalls = append(m.enableMetricCalls, metric)
@@ -54,6 +51,12 @@ func (m *mockProcessHandle) Wait() (*os.ProcessState, error) {
 	return &state, nil
 }
 
+func (m *mockProcessHandle) MemoryInfo() (*process.MemoryInfoStat, error) {
+	return &process.MemoryInfoStat{
+		RSS: 1000,
+	}, nil
+}
+
 func (m *mockProcessHandle) kill() {
 	close(m.done)
 }
@@ -62,22 +65,16 @@ func (m *mockProcessHandle) ExitCode() int {
 	return 0
 }
 
-func (m *mockProcessInfo) MemoryInfo() (*process.MemoryInfoStat, error) {
-	return &process.MemoryInfoStat{
-		RSS: 1000,
-	}, nil
-}
-
-func TestNewProcessWatcher(t *testing.T) {
+func TestNewServerWatcher(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
 	t.Run("no configured metrics", func(t *testing.T) {
 		t.Parallel()
 		metricsRegistry := mockWatcherMetricsRegistry{}
 		cfg := config.LspwatchConfig{}
-		_, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
+		_, err := NewServerWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
-			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
+			t.Fatalf("expected no errors creating server watcher, got '%v'", err)
 		}
 
 		if len(metricsRegistry.enableMetricCalls) != 1 {
@@ -95,9 +92,9 @@ func TestNewProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{},
 		}
-		_, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
+		_, err := NewServerWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
-			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
+			t.Fatalf("expected no errors creating server watcher, got '%v'", err)
 		}
 
 		if len(metricsRegistry.enableMetricCalls) != 0 {
@@ -112,9 +109,9 @@ func TestNewProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			Metrics: &[]string{metricName},
 		}
-		_, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
+		_, err := NewServerWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
-			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
+			t.Fatalf("expected no errors creating server watcher, got '%v'", err)
 		}
 
 		if len(metricsRegistry.enableMetricCalls) != 1 {
@@ -127,10 +124,9 @@ func TestNewProcessWatcher(t *testing.T) {
 	})
 }
 
-func TestProcessWatcher(t *testing.T) {
+func TestServerWatcher(t *testing.T) {
 	logger := logrus.New()
 	logger.SetOutput(io.Discard)
-	processInfo := mockProcessInfo{}
 	t.Run("emits metrics on interval and shuts down", func(t *testing.T) {
 		t.Parallel()
 		processHandle := mockProcessHandle{}
@@ -139,15 +135,12 @@ func TestProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
 		}
-		processWatcher, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
+		serverWatcher, err := NewServerWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
-			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
+			t.Fatalf("expected no errors creating server watcher, got '%v'", err)
 		}
 
-		err = processWatcher.Start(&processHandle, &processInfo)
-		if err != nil {
-			t.Fatalf("expected no errors starting process watcher, got '%v'", err)
-		}
+		serverWatcher.Start(&processHandle)
 
 		sleepDuration := (time.Duration(pollingIntervalSeconds*2) * time.Second) + 500*time.Millisecond
 		time.Sleep(sleepDuration)
@@ -161,13 +154,13 @@ func TestProcessWatcher(t *testing.T) {
 		}
 		metricsRegistry.mu.Unlock()
 
-		err = processWatcher.Shutdown()
+		err = serverWatcher.Shutdown()
 		if err != nil {
-			t.Fatalf("expected no errors shutting down process watcher, got '%v'", err)
+			t.Fatalf("expected no errors shutting down server watcher, got '%v'", err)
 		}
 		testutil.AssertExitsBefore(
-			t, "waiting for process watcher shutdown",
-			func() { processWatcher.Wait() },
+			t, "waiting for server watcher shutdown",
+			func() { serverWatcher.Wait() },
 			1*time.Second,
 		)
 	})
@@ -180,15 +173,12 @@ func TestProcessWatcher(t *testing.T) {
 		cfg := config.LspwatchConfig{
 			PollingInterval: &pollingIntervalSeconds,
 		}
-		processWatcher, err := NewProcessWatcher(&metricsRegistry, &cfg, logger)
+		serverWatcher, err := NewServerWatcher(&metricsRegistry, &cfg, logger)
 		if err != nil {
-			t.Fatalf("expected no errors creating process watcher, got '%v'", err)
+			t.Fatalf("expected no errors creating server watcher, got '%v'", err)
 		}
 
-		err = processWatcher.Start(&processHandle, &processInfo)
-		if err != nil {
-			t.Fatalf("expected no errors starting process watcher, got '%v'", err)
-		}
+		serverWatcher.Start(&processHandle)
 
 		processHandle.kill()
 		time.Sleep(500 * time.Millisecond)
@@ -196,8 +186,8 @@ func TestProcessWatcher(t *testing.T) {
 		initialEmitCount := len(metricsRegistry.emitMetricCalls)
 		metricsRegistry.mu.Unlock()
 		testutil.AssertExitsBefore(
-			t, "waiting for process watcher exit notification",
-			func() { <-processWatcher.ProcessExited() },
+			t, "waiting for server watcher exit notification",
+			func() { <-serverWatcher.ProcessExited() },
 			100*time.Millisecond,
 		)
 
@@ -210,14 +200,14 @@ func TestProcessWatcher(t *testing.T) {
 		}
 		metricsRegistry.mu.Unlock()
 
-		err = processWatcher.Shutdown()
+		err = serverWatcher.Shutdown()
 		if err != nil {
-			t.Fatalf("expected no errors shutting down process watcher, got '%v'", err)
+			t.Fatalf("expected no errors shutting down server watcher, got '%v'", err)
 		}
 
 		testutil.AssertExitsBefore(
-			t, "waiting for process watcher shutdown",
-			func() { processWatcher.Wait() },
+			t, "waiting for server watcher shutdown",
+			func() { serverWatcher.Wait() },
 			500*time.Millisecond,
 		)
 	})

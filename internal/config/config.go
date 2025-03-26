@@ -2,14 +2,17 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
 type LspwatchConfig struct {
 	Exporter    string `yaml:"exporter" validate:"required,oneof=opentelemetry datadog"`
-	EnvFilePath string `yaml:"env_file" validate:"required_if=Exporter datadog,omitempty"`
+	EnvFilePath string `yaml:"env_file" validate:"omitempty"`
+	Project     string `yaml:"project" validate:""`
 
 	Metrics         *[]string `yaml:"metrics" validate:"omitempty,dive,oneof=request.duration server.rss"`
 	Tags            []string  `yaml:"tags" validate:"omitempty,dive,oneof=user os language_server ram"`
@@ -21,13 +24,13 @@ type LspwatchConfig struct {
 }
 
 type OpenTelemetryConfig struct {
-	Protocol           string            `yaml:"protocol" validate:"required,oneof=grpc http file"`
-	Directory          string            `yaml:"directory" validate:"required_if=Protocol file,omitempty,min=1"`
-	MetricsEndpointURL string            `yaml:"metrics_endpoint_url" validate:"required_unless=Protocol file,omitempty"`
-	TLS                TLSConfig         `yaml:"tls" validate:"omitempty"`
-	Compression        string            `yaml:"compression" validate:"omitempty,oneof=gzip"`
-	Headers            map[string]string `yaml:"headers" validate:"omitempty"`
-	Timeout            *int              `yaml:"timeout" validate:"omitnil"`
+	Protocol    string            `yaml:"protocol" validate:"required,oneof=grpc http file"`
+	Directory   string            `yaml:"directory" validate:"required_if=Protocol file,omitempty,min=1"`
+	Endpoint    string            `yaml:"endpoint" validate:"required_unless=Protocol file,omitempty"`
+	TLS         TLSConfig         `yaml:"tls" validate:"omitempty"`
+	Compression string            `yaml:"compression" validate:"omitempty,oneof=gzip"`
+	Headers     map[string]string `yaml:"headers" validate:"omitempty"`
+	Timeout     *int              `yaml:"timeout" validate:"omitnil"`
 }
 
 type TLSConfig struct {
@@ -39,11 +42,11 @@ type TLSConfig struct {
 }
 
 type DatadogConfig struct {
-	ClientApiKeyEnvVar string `yaml:"client_api_key_env_var" validate:"required"`
-	ClientAppKeyEnvVar string `yaml:"client_app_key_env_var" validate:"required"`
+	ClientApiKey       string `yaml:"client_api_key" validate:"required"`
+	ClientAppKey       string `yaml:"client_app_key" validate:"required"`
 	BatchSize          *int   `yaml:"exporter_batch_size" validate:"omitnil,gte=1,lte=500"`
 	BatchTimeout       *int   `yaml:"exporter_batch_timeout" validate:"omitnil,gte=1,lte=250"`
-	Site               string `yaml:"site" validate:"omitempty,oneof=datadoghq.com us3.datadoghq.com us5.datadoghq.com ap1.datadoghq.com datadoghq.eu ddog-gov.com"`
+	Site               string `yaml:"site" validate:"omitempty"`
 	DisableCompression *bool  `yaml:"disable_compression" validate:"omitnil"`
 }
 
@@ -68,6 +71,24 @@ func ReadLspwatchConfig(fileBytes []byte) (LspwatchConfig, error) {
 	err = validate.Struct(config)
 	if err != nil {
 		return LspwatchConfig{}, fmt.Errorf("invalid lspwatch configuration: %v", err)
+	}
+
+	if config.EnvFilePath != "" {
+		err = godotenv.Load(config.EnvFilePath)
+		if err != nil {
+			return LspwatchConfig{}, fmt.Errorf("error loading .env file: %v", err)
+		}
+	}
+
+	if config.Datadog != nil {
+		config.Datadog.ClientApiKey = os.ExpandEnv(config.Datadog.ClientApiKey)
+		config.Datadog.ClientAppKey = os.ExpandEnv(config.Datadog.ClientAppKey)
+	}
+
+	if config.OpenTelemetry != nil {
+		for k, v := range config.OpenTelemetry.Headers {
+			config.OpenTelemetry.Headers[k] = os.ExpandEnv(v)
+		}
 	}
 
 	return config, nil

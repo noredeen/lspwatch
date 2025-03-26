@@ -14,26 +14,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/noredeen/lspwatch/internal/config"
 	"github.com/noredeen/lspwatch/internal/core"
 	"github.com/noredeen/lspwatch/internal/exporters"
 	lspwatch_io "github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
 	"github.com/shirou/gopsutil/v4/mem"
-	"github.com/shirou/gopsutil/v4/process"
 	"github.com/sirupsen/logrus"
 )
 
 type LspwatchInstance struct {
-	cfg            config.LspwatchConfig
-	exporter       telemetry.MetricsExporter
-	proxyHandler   *core.ProxyHandler
-	processWatcher *core.ProcessWatcher
-	logger         *logrus.Logger
-	logFile        *os.File
-	serverCmd      *exec.Cmd
-	serverStderr   io.ReadCloser
+	cfg           config.LspwatchConfig
+	exporter      telemetry.MetricsExporter
+	proxyHandler  *core.ProxyHandler
+	serverWatcher *core.ServerWatcher
+	logger        *logrus.Logger
+	logFile       *os.File
+	serverCmd     *exec.Cmd
+	serverStderr  io.ReadCloser
 }
 
 var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
@@ -41,7 +39,8 @@ var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistra
 		Kind:        telemetry.Histogram,
 		Name:        "lspwatch.request.duration",
 		Description: "Duration of LSP request",
-		Unit:        "s",
+		OTelUnit:    "s",
+		DatadogUnit: "s",
 	},
 }
 
@@ -50,7 +49,8 @@ var availableServerMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegis
 		Kind:        telemetry.Histogram,
 		Name:        "lspwatch.server.rss",
 		Description: "RSS of the language server process",
-		Unit:        "By",
+		OTelUnit:    "By",
+		DatadogUnit: "bytes",
 	},
 }
 
@@ -70,7 +70,7 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 	serverCmd := lspwatchInstance.serverCmd
 	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
-	processWatcher := lspwatchInstance.processWatcher
+	serverWatcher := lspwatchInstance.serverWatcher
 
 	logger.Infof("starting language server using command '%v' and args '%v'", serverCmd.Path, serverCmd.Args[1:])
 	err := serverCmd.Start()
@@ -80,15 +80,13 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 
 	logger.Infof("launched language server process (PID=%v)", serverCmd.Process.Pid)
 
-	processHandle := serverCmd.Process
-	processInfo, err := process.NewProcess(int32(processHandle.Pid))
+	processHandle, err := core.NewDefaultProcessHandle(serverCmd.Process)
 	if err != nil {
-		return fmt.Errorf("error creating process info provider: %v", err)
+		return fmt.Errorf("error creating process handle: %v", err)
 	}
 
-	exporter.Start()
 	proxyHandler.Start()
-	processWatcher.Start(processHandle, processInfo)
+	serverWatcher.Start(processHandle)
 	lspwatchInstance.startInterruptListener()
 	lspwatchInstance.startStderrRecorder()
 
@@ -106,7 +104,7 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 
 	for {
 		select {
-		case state := <-processWatcher.ProcessExited():
+		case state := <-serverWatcher.ProcessExited():
 			{
 				if state != nil {
 					// TODO: Try to get the real code for signal exits?
@@ -130,11 +128,25 @@ func (lspwatchInstance *LspwatchInstance) Run() error {
 				// Start timer to wait for language server to exit
 				timer.Reset(3 * time.Second)
 			}
+		case <-proxyHandler.SwitchedToProxyMode():
+			{
+				// The proxy handler has switched to proxy mode and has begun the
+				// mode switch handshake.
+				err := exporter.Start()
+				if err != nil {
+					logger.Errorf("fatal error starting metrics exporter: %v", err)
+					os.Exit(1)
+				}
+				// Complete the handshake.
+				proxyHandler.ConfirmProxyMode()
+				logger.Info("lspwatch switched to proxy mode")
+			}
 		case <-timer.C:
 			logger.Info("organic language server shutdown failed. forcing with SIGKILL...")
 			err := serverCmd.Process.Signal(syscall.SIGKILL)
 			if err != nil {
-				logger.Fatalf("error signaling language server to shut down: %v", err)
+				logger.Errorf("fatal error signaling language server to shut down: %v", err)
+				os.Exit(1)
 			}
 		}
 	}
@@ -146,32 +158,34 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 	logger := lspwatchInstance.logger
 	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
-	processWatcher := lspwatchInstance.processWatcher
+	serverWatcher := lspwatchInstance.serverWatcher
 
 	err := proxyHandler.Shutdown()
 	if err != nil {
-		logger.Fatalf("error shutting down proxy handler: %v", err)
+		logger.Errorf("fatal error shutting down proxy handler: %v", err)
+		os.Exit(1)
 	}
-
-	err = processWatcher.Shutdown()
+	err = serverWatcher.Shutdown()
 	if err != nil {
-		logger.Fatalf("error shutting down process watcher: %v", err)
+		logger.Errorf("fatal error shutting down server watcher: %v", err)
+		os.Exit(1)
 	}
-
 	proxyHandler.Wait()
-	processWatcher.Wait()
+	logger.Info("proxy handler shutdown complete")
+	serverWatcher.Wait()
+	logger.Info("server watcher shutdown complete")
 
-	// Shut down exporter only after proxy handler and process watcher have
-	// flushed their metrics and exited.
+	// Shut down exporter only after proxy handler and server watcher have
+	// emitted their final metrics and exited.
 	err = exporter.Shutdown()
 	if err != nil {
-		logger.Fatalf("error shutting down metrics exporter: %v", err)
+		logger.Errorf("fatal error shutting down metrics exporter: %v", err)
+		os.Exit(1)
 	}
-
 	exporter.Wait()
 	logger.Info("metrics exporter shutdown complete")
-	logger.Info("lspwatch shutdown complete. goodbye!")
 
+	logger.Info("lspwatch shutdown complete. goodbye!")
 	err = exporter.Release()
 	if err != nil {
 		logger.Errorf("error releasing metrics exporter: %v", err)
@@ -205,15 +219,6 @@ func NewLspwatchInstance(
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
-	if cfg.EnvFilePath != "" {
-		err = godotenv.Load(cfg.EnvFilePath)
-		if err != nil {
-			msg := fmt.Sprintf("error loading .env file: %v", err)
-			logger.Error(msg)
-			return LspwatchInstance{}, errors.New(msg)
-		}
-	}
-
 	serverCmd := exec.Command(serverShellCommand, args...)
 	errPipe, err := serverCmd.StderrPipe()
 	if err != nil {
@@ -243,40 +248,18 @@ func NewLspwatchInstance(
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
-	tagGetters := map[telemetry.AvailableTag]func() telemetry.TagValue{
-		telemetry.OS: func() telemetry.TagValue {
-			return telemetry.TagValue(runtime.GOOS)
-		},
-		telemetry.LanguageServer: func() telemetry.TagValue {
-			// TODO: This is not robust?
-			return telemetry.TagValue(filepath.Base(serverCmd.Path))
-		},
-		telemetry.RAM: func() telemetry.TagValue {
-			vmem, err := mem.VirtualMemory()
-			if err != nil {
-				logger.Errorf("error getting total system memory: %v", err)
-				return ""
-			}
-			totalGB := vmem.Total / (1024 * 1024 * 1024)
-			return telemetry.TagValue(fmt.Sprintf("%v", totalGB))
-		},
-		telemetry.User: func() telemetry.TagValue {
-			curr, err := user.Current()
-			if err != nil {
-				logger.Errorf("error getting current user: %v", err)
-				return ""
-			}
-			return telemetry.TagValue(curr.Username)
-		},
-	}
-
-	tags, err := getTagValues(&cfg, tagGetters)
+	globalTags, err := getTagValues(&cfg, globalTagGetters(serverCmd.Path, logger))
 	if err != nil {
 		msg := fmt.Sprintf("error getting tag values: %v", err)
 		logger.Error(msg)
 		return LspwatchInstance{}, errors.New(msg)
 	}
-	exporter.SetGlobalTags(tags...)
+
+	if cfg.Project != "" {
+		globalTags = append(globalTags, telemetry.NewTag("project", telemetry.TagValue(cfg.Project)))
+	}
+
+	exporter.SetGlobalTags(globalTags...)
 
 	requestMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableLSPMetrics)
 	proxyHandler, err := core.NewProxyHandler(
@@ -296,27 +279,56 @@ func NewLspwatchInstance(
 	}
 
 	serverMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableServerMetrics)
-	processWatcher, err := core.NewProcessWatcher(
+	serverWatcher, err := core.NewServerWatcher(
 		&serverMetricsRegistry,
 		&cfg,
 		logger,
 	)
 	if err != nil {
-		msg := fmt.Sprintf("error initializing process watcher: %v", err)
+		msg := fmt.Sprintf("error initializing server watcher: %v", err)
 		logger.Error(msg)
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
 	return LspwatchInstance{
-		cfg:            cfg,
-		exporter:       exporter,
-		logger:         logger,
-		logFile:        logFile,
-		proxyHandler:   proxyHandler,
-		processWatcher: processWatcher,
-		serverCmd:      serverCmd,
-		serverStderr:   errPipe,
+		cfg:           cfg,
+		exporter:      exporter,
+		logger:        logger,
+		logFile:       logFile,
+		proxyHandler:  proxyHandler,
+		serverWatcher: serverWatcher,
+		serverCmd:     serverCmd,
+		serverStderr:  errPipe,
 	}, nil
+}
+
+func globalTagGetters(serverCmdPath string, logger *logrus.Logger) map[telemetry.AvailableTag]func() telemetry.TagValue {
+	return map[telemetry.AvailableTag]func() telemetry.TagValue{
+		telemetry.OS: func() telemetry.TagValue {
+			return telemetry.TagValue(runtime.GOOS)
+		},
+		telemetry.LanguageServer: func() telemetry.TagValue {
+			// TODO: This is not robust?
+			return telemetry.TagValue(filepath.Base(serverCmdPath))
+		},
+		telemetry.RAM: func() telemetry.TagValue {
+			vmem, err := mem.VirtualMemory()
+			if err != nil {
+				logger.Errorf("error getting total system memory: %v", err)
+				return ""
+			}
+			totalGB := vmem.Total / (1024 * 1024 * 1024)
+			return telemetry.TagValue(fmt.Sprintf("%v", totalGB))
+		},
+		telemetry.User: func() telemetry.TagValue {
+			curr, err := user.Current()
+			if err != nil {
+				logger.Errorf("error getting current user: %v", err)
+				return ""
+			}
+			return telemetry.TagValue(curr.Username)
+		},
+	}
 }
 
 func getConfig(path string) (config.LspwatchConfig, error) {
@@ -331,7 +343,7 @@ func getConfig(path string) (config.LspwatchConfig, error) {
 
 	cfg, err := config.ReadLspwatchConfig(fileBytes)
 	if err != nil {
-		return config.LspwatchConfig{}, fmt.Errorf("error parsing lspwatch config: %v", err)
+		return config.LspwatchConfig{}, fmt.Errorf("error reading lspwatch config: %v", err)
 	}
 
 	return cfg, nil
@@ -346,14 +358,17 @@ func (lspwatch *LspwatchInstance) startInterruptListener() {
 			lspwatch.logger.Infof("lspwatch process interrupted. forwarding signal to language server...")
 			err := lspwatch.serverCmd.Process.Signal(sig)
 			if err != nil {
-				lspwatch.logger.Fatalf(
-					"error forwarding signal to language server process (PID=%v): %v",
+				lspwatch.logger.Errorf(
+					"fatal error forwarding signal to language server process (PID=%v): %v",
 					lspwatch.serverCmd.Process.Pid,
 					err,
 				)
+				os.Exit(1)
 			}
 		}
 	}()
+
+	lspwatch.logger.Info("interrupt listener started")
 }
 
 // TODO: Test this functionality in integration tests.
