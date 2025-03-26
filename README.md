@@ -128,10 +128,10 @@ lspwatch -- gopls "$@"
 
 ## Configuration
 
-`lspwatch` can be configured with a YAML file. Use the `--config` or `-c` flag to specify the path.
+`lspwatch` can be configured with a YAML file. Use the `--config` or `-c` flag to specify the path. Fields which allow ENV variable expansion can include references to environment variables in the form `$ENV_VAR` or `${ENV_VAR}`.
 
 
-| YAML field         | Type        |           Required?           | ENV variable extraction? | Description                                                                                                                                                                                                                                                                                                                                                        |
+| YAML field         | Type        |           Required?           | ENV variable expansion? | Description                                                                                                                                                                                                                                                                                                                                                        |
 |--------------------|----------|:-----------------------------:|:------------------------:|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `project`          | string   |               ✗               |             ✗            | Name of the project/repository the language server will operate on. All metrics will be tagged with this value, if provided.                                                                                                                                                                                                                                               |
 | `exporter`         | string   |               ✓               |             ✗            | Either: `datadog` or `opentelemetry`.                                                                                                                                                                                                                                                                                                                              |
@@ -145,7 +145,7 @@ lspwatch -- gopls "$@"
 
 ### `opentelemetry`
 
-| YAML field    |              Type              |            Required?            | ENV variable extraction? | Description                                                                       |
+| YAML field    |              Type              |            Required?            | ENV variable expansion? | Description                                                                        |
 |---------------|:------------------------------:|:-------------------------------:|:------------------------:|-----------------------------------------------------------------------------------|
 | `protocol`    |             string             |                ✓                |             ✗            | The protocol used by the OpenTelemetry exporter. Options: `grpc`, `http`, `file`. |
 | `directory`   |             string             |      If protocol is `file`      |             ✗            | The directory where `lspwatch` will store OpenTelemetry metrics files.            |
@@ -157,7 +157,7 @@ lspwatch -- gopls "$@"
 
 ### `datadog`
 
-| YAML field               |   Type  | Required? | ENV variable extraction? | Description                                                                                      |
+| YAML field               |   Type  | Required? | ENV variable expansion? | Description                                                                                       |
 |--------------------------|:-------:|:---------:|:------------------------:|--------------------------------------------------------------------------------------------------|
 | `client_api_key`         |  string |     ✓     |             ✓            | Value for Datadog authentication.                                                                |
 | `client_app_key`         |  string |     ✓     |             ✓            | Value for Datadog authentication.                                                                |
@@ -168,7 +168,7 @@ lspwatch -- gopls "$@"
 
 ### `tls`
 
-| YAML field             |   Type  | Required? | ENV variable extraction? | Description                                                                      |
+| YAML field             |   Type  | Required? | ENV variable expansion? | Description                                                                       |
 |------------------------|:-------:|:---------:|:------------------------:|----------------------------------------------------------------------------------|
 | `insecure`             | boolean |     ✗     |             ✗            | Disables client transport security.                                              |
 | `insecure_skip_verify` | boolean |     ✗     |             ✗            | Controls whether a client verifies the server's certificate chain and host name. |
@@ -199,7 +199,7 @@ Contributions are welcomed and a contributing guide is in the works. Refer to th
 <summary><b>Architecture of <code>lspwatch</code></b></summary>
 <br/>
 
-<img src="https://github-production-user-asset-6210df.s3.amazonaws.com/30037359/424455023-a463a884-cd73-4075-89b4-f72106916542.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20250319%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250319T113907Z&X-Amz-Expires=300&X-Amz-Signature=b199aa893f4f8930717d0ef183f36c90998408ac2bba7703358203be0f74d255&X-Amz-SignedHeaders=host">
+<img src="https://noredeen.github.io/lspwatch.png">
 
 </details>
 
