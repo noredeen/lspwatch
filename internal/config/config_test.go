@@ -52,8 +52,15 @@ exporter: opentelemetry
 opentelemetry:
   protocol: file
   directory: ./`,
-			expectedCfg: LspwatchConfig{},
-			err:         true,
+			expectedCfg: LspwatchConfig{
+				Exporter: "opentelemetry",
+				Project:  "",
+				OpenTelemetry: &OpenTelemetryConfig{
+					Protocol:  "file",
+					Directory: "./",
+				},
+			},
+			err: false,
 		},
 
 		{

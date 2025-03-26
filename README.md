@@ -1,8 +1,3 @@
-> [!WARNING]
-> `lspwatch` is beta software. It is under active development and may undergo significant, backwards-incompatible changes. No stability guarantees.
-
----
-
 <div align="center">
 <h1>
   <div class="image-wrapper" style="display: inline-block;">
@@ -41,12 +36,7 @@
 `lspwatch` can calculate and export:
 
 * **Request duration**: how long it takes for the language server to respond to code completion, hover, go-to-definition, etc requests from the editor.
-
-    * Metric name: `lspwatch.request.duration`. Tagged with `method`--the LSP method name (e.g `textDocument/completion`).
-
 * **Language server resident-set size (RSS)**: how much memory the language server is actively using.
-
-    * Metric name: `lspwatch.server.rss`.
 
 Users can optionally choose to tag metrics with:
 
@@ -78,10 +68,10 @@ TODO
 
 `lspwatch` is an executable that transparently stands in place of the language server. `lspwatch` operates in one of two modes:
 
-1. **`command` mode**: For running one-time language server queries like `gopls stats`, where the command exits after returning results. Editors often use such queries to gather static metadata.
-2. **`proxy` mode**: For long-running language server sessions where LSP messages are continuously exchanged. This is the  typical usage of the language server.
+1. **`command`** mode: For running one-time language server queries like `gopls stats`, where the command exits after returning results. Editors often use such queries to gather static metadata.
+2. **`proxy`** mode: For long-running language server sessions where LSP messages are continuously exchanged. This is the  typical usage of the language server.
 
-`lspwatch` will automatically choose the correct mode, but you can also specify it using the `--mode` flag (e.g `lspwatch --mode command -- gopls stats`).
+> **`lspwatch` will automatically choose the correct mode**, but you can also specify it using the `--mode` flag (e.g `lspwatch --mode command -- gopls stats`). You should never need to do this.
 
 Generally, to use `lpswatch` for instrumenting your language server, you will need to replace the command your code editor invokes when running the language server. For example, instead of running `gopls <args>`, your editor should run `lspwatch -- gopls <args>`. Most LSP-equipped editors will have a way to configure this. Some verified examples are included below, but reference the documentation of your editor or language extension for instructions.
 
@@ -125,6 +115,17 @@ lspwatch -- gopls "$@"
 ```
 </details>
 
+### Available metrics
+
+`lspwatch` offers a set of pre-defined metrics. Some metrics will have tags/attributes which others don't. In your observability backend, every metric name will be prepended with `lspwatch.`.
+
+**Options**:
+
+* `request.duration` (In your observability backend: `lspwatch.request.duration`)
+  * **Special tags**: `method` -- name of the LSP request method.
+* `server.rss`
+  * **Special tags**: None.
+
 ## Configuration
 
 `lspwatch` can be configured with a YAML file. Use the `--config` or `-c` flag to specify the path.
@@ -132,17 +133,17 @@ lspwatch -- gopls "$@"
 
 | YAML field         | Type        |           Required?           | ENV variable extraction? | Description                                                                                                                                                                                                                                                                                                                                                        |
 |--------------------|----------|:-----------------------------:|:------------------------:|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `project`          | string   |               ✓               |             ✗            | Name of the project/repository the language server will operate against. All metrics will be tagged with this value.                                                                                                                                                                                                                                               |
+| `project`          | string   |               ✗               |             ✗            | Name of the project/repository the language server will operate on. All metrics will be tagged with this value, if provided.                                                                                                                                                                                                                                               |
 | `exporter`         | string   |               ✓               |             ✗            | Either: `datadog` or `opentelemetry`.                                                                                                                                                                                                                                                                                                                              |
 | `env_file`         | string   |               ✗               |             ✗            | Path to a `.env` file containing environment variables relevant to `lspwatch`.                                                                                                                                                                                                                                                                                     |
 | `metrics`          | []string |               ✗               |             ✗            | The metrics emitted by `lspwatch`. Default: all available metrics. Options: `request.duration`, `server.rss`.                                                                                                                                                                                                                                                      |
 | `tags`             | []string |               ✗               |             ✗            | **Additional** tags to include with all metrics. Default: none. Options: `user`, `os`, `language_server`, `ram`.                                                                                                                                                                                                                                                   |
 | `metered_requests` | []string |               ✗               |             ✗            | Method names of the LSP requests to monitor/measure. Default: `initialize`, `textDocument/references`, `textDocument/hover`, `textDocument/documentSymbols`, `textDocument/completion`, `textDocument/diagnostic`, `textDocument/signatureHelp`. Options: [LSP docs](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/). |
 | `polling_interval` | int      |               ✗               |             ✗            | Interval in seconds for polling language server stats (e.g RSS). Default: 5s. Options: 1 <= t <= 1000.                                                                                                                                                                                                                                                             |
-| `opentelemetry`    | object   | If exporter is `opentelemtry` |                          |                                                                                                                                                                                                                                                                                                                                                                    |
-| `datadog`          | object   |    If exporter is `datadog`   |                          |                                                                                                                                                                                                                                                                                                                                                                    |
+| `opentelemetry`    | object   | If exporter is `opentelemtry` |                          | See below.                                                                                                                                                                                                                                                                                                                                                                   |
+| `datadog`          | object   |    If exporter is `datadog`   |                          | See below.                                                                                                                                                                                                                                                                                                                                                                    |
 
-### OpenTelemetry
+### `opentelemetry`
 
 | YAML field    |              Type              |            Required?            | ENV variable extraction? | Description                                                                       |
 |---------------|:------------------------------:|:-------------------------------:|:------------------------:|-----------------------------------------------------------------------------------|
@@ -154,7 +155,7 @@ lspwatch -- gopls "$@"
 | `headers`     | object; string key-value pairs |                ✗                |             ✓            | Headers to include in the `grpc` and `http` requests.                             |
 | `timeout`     |               int              |                ✗                |             ✗            | `grpc` and `http` request timeout.                                                |
 
-### Datadog
+### `datadog`
 
 | YAML field               |   Type  | Required? | ENV variable extraction? | Description                                                                                      |
 |--------------------------|:-------:|:---------:|:------------------------:|--------------------------------------------------------------------------------------------------|
@@ -165,9 +166,30 @@ lspwatch -- gopls "$@"
 | `site`                   | string  |     ✗     |             ✗            | Datadog site. More info in the [Datadog docs](https://docs.datadoghq.com/getting_started/site/). |
 | `disable_compression`    | boolean |     ✗     |             ✗            | Disables HTTP request compression, which is enabled by default.                                  |
 
-### TLS
+### `tls`
 
-TODO
+| YAML field             |   Type  | Required? | ENV variable extraction? | Description                                                                      |
+|------------------------|:-------:|:---------:|:------------------------:|----------------------------------------------------------------------------------|
+| `insecure`             | boolean |     ✗     |             ✗            | Disables client transport security.                                              |
+| `insecure_skip_verify` | boolean |     ✗     |             ✗            | Controls whether a client verifies the server's certificate chain and host name. |
+| `ca_file`              |  string |     ✗     |             ✗            | Path to a CA file.                                                               |
+| `cert_file`            |  string |     ✗     |             ✗            | Path to a certificate file.                                                      |
+| `key_file`             | string  |     ✗     |             ✗            | Path to a key file.                                                              |
+
+### No config
+Running `lspwatch` without a config file is equivalent to using the following config:
+
+```yaml
+exporter: opentelemetry
+opentelemetry:
+  protocol: file
+  directory: ./
+```
+
+i.e `lspwatch` will append OpenTelemetry metrics to a file inside the working directory.
+
+> [!WARNING]  
+> `lspwatch` does not yet support output file rotation, so the metrics file will grow in size without bound as metrics get emitted.
 
 ## Contributing
 

@@ -10,9 +10,9 @@ import (
 )
 
 type LspwatchConfig struct {
-	Project     string `yaml:"project" validate:"required"`
 	Exporter    string `yaml:"exporter" validate:"required,oneof=opentelemetry datadog"`
 	EnvFilePath string `yaml:"env_file" validate:"omitempty"`
+	Project     string `yaml:"project" validate:""`
 
 	Metrics         *[]string `yaml:"metrics" validate:"omitempty,dive,oneof=request.duration server.rss"`
 	Tags            []string  `yaml:"tags" validate:"omitempty,dive,oneof=user os language_server ram"`
