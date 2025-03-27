@@ -38,9 +38,8 @@ changelog:
       - "^docs:"
       - "^test:"
 
-release:
-  footer: >-
-
-    ---
-
-    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+brews:
+  - name: lspwatch
+    repository:
+      owner: noredeen
+      name: homebrew-tap
