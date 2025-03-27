@@ -62,7 +62,22 @@ With `lspwatch`, you get metrics related to the responsiveness of your editor, t
 
 ## Installation
 
-TODO
+`lspwatch` is available only for MacOS and Linux. The easiest way to install it is via a Homebrew tap:
+
+```bash
+brew install noredeen/tap/lspwatch
+```
+
+Alternatively, you can install executables from the [releases page](https://github.com/noredeen/lspwatch/releases).
+
+### Building from source
+
+Prerequisites:
+
+* Go `1.23.x`.
+* make.
+
+Install the project dependencies with `make deps`, and run `sudo make install` to build and install `lspwatch`. If you just want to build the project, you can run `make build`. To uninstall `lspwatch`, run `sudo make uninstall`.
 
 ## Usage
 
