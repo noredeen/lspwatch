@@ -15,3 +15,5 @@ go.work
 **/build/
 **/coverage
 stubs
+# Added by goreleaser init:
+dist/
