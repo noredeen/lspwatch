@@ -8,6 +8,7 @@ UNIT_TEST_DIRS := $(shell go list ./... | grep -v $(INTEGRATION_TEST_DIR))
 
 OTEL_EXPORTS_DIR := /tmp/file-exporter
 CONTAINER_ID_FILE := /tmp/$(APP_NAME)-test-container-id
+INSTALL_DIR := /usr/local/bin
 
 SRC := $(shell find . -name '*.go' -not -path "./vendor/*")
 
@@ -15,6 +16,14 @@ SRC := $(shell find . -name '*.go' -not -path "./vendor/*")
 build: clean
 	@echo "Building $(APP_NAME)..."
 	go build -o $(BUILD_DIR)/$(APP_NAME) -ldflags "-X main.version=$(VERSION)" .
+
+.PHONY: install
+install: build
+	install -m 755 $(BUILD_DIR)/$(APP_NAME) $(INSTALL_DIR)
+
+.PHONY: uninstall
+uninstall:
+	rm -f $(INSTALL_DIR)/$(APP_NAME)
 
 .PHONY: run
 run: build
