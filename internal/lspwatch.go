@@ -208,7 +208,6 @@ func NewLspwatchInstance(
 	logger, logFile, err := lspwatch_io.CreateLogger(logDir, "lspwatch.log")
 	if err != nil {
 		msg := fmt.Sprintf("error creating logger: %v", err)
-		logger.Error(msg)
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
