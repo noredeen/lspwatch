@@ -285,15 +285,15 @@ func NewLspwatchInstance(
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
-	// Initialize UI server
-	uiServer := ui.NewServer(logger)
-
-	// Start UI server in a goroutine
-	go func() {
-		if err := uiServer.Start(0); err != nil {
-			logger.Errorf("Error starting UI server: %v", err)
-		}
-	}()
+	var uiServer *ui.Server
+	if cfg.Debug {
+		uiServer = ui.NewServer(logger)
+		go func() {
+			if err := uiServer.Start(0); err != nil {
+				logger.Errorf("Error starting UI server: %v", err)
+			}
+		}()
+	}
 
 	proxyHandler, err := core.NewProxyHandler(
 		&cfg,
