@@ -1,0 +1,9 @@
+project: lspwatch
+exporter: opentelemetry
+metrics: []
+env_file: lspwatch.env
+opentelemetry:
+  endpoint: api.honeycomb.io
+  protocol: grpc
+  headers:
+    x-honeycomb-team: ${HONEYCOMB_TEAM}

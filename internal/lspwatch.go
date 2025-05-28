@@ -19,6 +19,7 @@ import (
 	"github.com/noredeen/lspwatch/internal/exporters"
 	lspwatch_io "github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
+	"github.com/noredeen/lspwatch/internal/ui"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/sirupsen/logrus"
 )
@@ -32,6 +33,7 @@ type LspwatchInstance struct {
 	logFile       *os.File
 	serverCmd     *exec.Cmd
 	serverStderr  io.ReadCloser
+	uiServer      *ui.Server
 }
 
 var availableLSPMetrics = map[telemetry.AvailableMetric]telemetry.MetricRegistration{
@@ -159,6 +161,7 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 	exporter := lspwatchInstance.exporter
 	proxyHandler := lspwatchInstance.proxyHandler
 	serverWatcher := lspwatchInstance.serverWatcher
+	uiServer := lspwatchInstance.uiServer
 
 	err := proxyHandler.Shutdown()
 	if err != nil {
@@ -174,6 +177,15 @@ func (lspwatchInstance *LspwatchInstance) shutdownAndWait() {
 	logger.Info("proxy handler shutdown complete")
 	serverWatcher.Wait()
 	logger.Info("server watcher shutdown complete")
+
+	// Shut down UI server
+	if uiServer != nil {
+		err := uiServer.Shutdown()
+		if err != nil {
+			logger.Errorf("error shutting down UI server: %v", err)
+		}
+		logger.Info("UI server shutdown complete")
+	}
 
 	// Shut down exporter only after proxy handler and server watcher have
 	// emitted their final metrics and exited.
@@ -208,7 +220,6 @@ func NewLspwatchInstance(
 	logger, logFile, err := lspwatch_io.CreateLogger(logDir, "lspwatch.log")
 	if err != nil {
 		msg := fmt.Sprintf("error creating logger: %v", err)
-		logger.Error(msg)
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
@@ -262,22 +273,6 @@ func NewLspwatchInstance(
 	exporter.SetGlobalTags(globalTags...)
 
 	requestMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableLSPMetrics)
-	proxyHandler, err := core.NewProxyHandler(
-		&cfg,
-		&requestMetricsRegistry,
-		os.Stdin,
-		os.Stdout,
-		serverStdoutPipe,
-		serverStdinPipe,
-		mode,
-		logger,
-	)
-	if err != nil {
-		msg := fmt.Sprintf("error initializing LSP request handler: %v", err)
-		logger.Error(msg)
-		return LspwatchInstance{}, errors.New(msg)
-	}
-
 	serverMetricsRegistry := telemetry.NewDefaultMetricsRegistry(exporter, availableServerMetrics)
 	serverWatcher, err := core.NewServerWatcher(
 		&serverMetricsRegistry,
@@ -290,15 +285,43 @@ func NewLspwatchInstance(
 		return LspwatchInstance{}, errors.New(msg)
 	}
 
+	var uiServer *ui.Server
+	if cfg.Debug {
+		uiServer = ui.NewServer(logger)
+		go func() {
+			if err := uiServer.Start(0); err != nil {
+				logger.Errorf("Error starting UI server: %v", err)
+			}
+		}()
+	}
+
+	proxyHandler, err := core.NewProxyHandler(
+		&cfg,
+		&requestMetricsRegistry,
+		os.Stdin,
+		os.Stdout,
+		serverStdoutPipe,
+		serverStdinPipe,
+		mode,
+		logger,
+		uiServer,
+	)
+	if err != nil {
+		msg := fmt.Sprintf("error creating proxy handler: %v", err)
+		logger.Error(msg)
+		return LspwatchInstance{}, errors.New(msg)
+	}
+
 	return LspwatchInstance{
 		cfg:           cfg,
 		exporter:      exporter,
-		logger:        logger,
-		logFile:       logFile,
 		proxyHandler:  proxyHandler,
 		serverWatcher: serverWatcher,
+		logger:        logger,
+		logFile:       logFile,
 		serverCmd:     serverCmd,
 		serverStderr:  errPipe,
+		uiServer:      uiServer,
 	}, nil
 }
 

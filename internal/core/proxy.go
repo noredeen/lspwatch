@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"github.com/noredeen/lspwatch/internal/config"
 	lspwatch_io "github.com/noredeen/lspwatch/internal/io"
 	"github.com/noredeen/lspwatch/internal/telemetry"
+	"github.com/noredeen/lspwatch/internal/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -55,6 +57,7 @@ type ProxyHandler struct {
 	shutdownOnce        sync.Once
 	mode                string
 	logger              *logrus.Logger
+	uiServer            *ui.Server
 }
 
 var defaultMeteredRequests = []string{
@@ -210,63 +213,64 @@ func (ph *ProxyHandler) listenServer() {
 	for {
 		select {
 		case <-ph.incomingShutdown:
-			{
-				return
-			}
+			return
 		case res := <-serverReadResultChan:
-			{
-				serverMessage := res.serverMessage
-				result := res.result
-				if result.Err != nil {
-					if result.Err == io.EOF {
-						ph.logger.Info("server closed connection")
-						ph.raiseShutdownRequest()
-						return
-					}
-
-					ph.logger.Errorf("error reading message from language server: %v", result.Err)
-					continue
+			serverMessage := res.serverMessage
+			result := res.result
+			if result.Err != nil {
+				if result.Err == io.EOF {
+					ph.logger.Info("server closed connection")
+					ph.raiseShutdownRequest()
+					return
 				}
 
-				// In LSP, servers can originate requests (which include a `method` field)
-				// in some cases. lspwatch ignores such server requests.
-				if serverMessage.Id != nil && serverMessage.Method == nil {
-					requestBookmark, ok := ph.requestBuffer.Get(serverMessage.Id.Value)
-					if ok {
-						ph.requestBuffer.Delete(serverMessage.Id.Value)
+				ph.logger.Errorf("error reading message from language server: %v", result.Err)
+				continue
+			}
 
-						// Only consider requests which lspwatch is configured to meter.
-						if _, metered := ph.meteredRequests[requestBookmark.Method]; metered {
+			// In LSP, servers can originate requests (which include a `method` field)
+			// in some cases. lspwatch ignores such server requests.
+			if serverMessage.Id != nil && serverMessage.Method == nil {
+				requestBookmark, ok := ph.requestBuffer.Get(serverMessage.Id.Value)
+				duration := time.Since(requestBookmark.RequestTime)
 
-							// Meter this requests's duration only if it's enabled.
-							if ph.metricsRegistry.IsMetricEnabled(telemetry.RequestDuration) {
-								duration := time.Since(requestBookmark.RequestTime)
-								requestDurationMetric := telemetry.NewMetricRecording(
-									telemetry.RequestDuration,
-									time.Now().Unix(),
-									duration.Seconds(),
-									telemetry.NewTag("method", telemetry.TagValue(requestBookmark.Method)),
-								)
-								ph.logger.Infof("emitting metric %q", requestDurationMetric.Name)
-								err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
-								if err != nil {
-									ph.logger.Errorf("error emitting metric: %v", err)
-								}
-							}
-						}
-					} else {
-						ph.logger.Infof(
-							"received client response for unbuffered request with ID=%q",
-							serverMessage.Id.Value,
+				if ok {
+					ph.requestBuffer.Delete(serverMessage.Id.Value)
+
+					// Send message to UI server
+					if ph.uiServer != nil {
+						body := *result.RawBody
+						body = body[bytes.Index(body, []byte("\r\n\r\n"))+4:]
+
+						ph.uiServer.BroadcastMessage(ui.Message{
+							Direction: "server",
+							Content:   string(body),
+							Timestamp: time.Now().Format(time.RFC3339),
+							Duration:  duration.Milliseconds(),
+						})
+					}
+
+					// Meter this requests's duration only if the metric is enabled.
+					if ph.metricsRegistry.IsMetricEnabled(telemetry.RequestDuration) {
+						requestDurationMetric := telemetry.NewMetricRecording(
+							telemetry.RequestDuration,
+							time.Now().Unix(),
+							duration.Seconds(),
+							telemetry.NewTag("method", telemetry.TagValue(requestBookmark.Method)),
 						)
+						ph.logger.Infof("emitting metric %q", requestDurationMetric.Name)
+						err := ph.metricsRegistry.EmitMetric(requestDurationMetric)
+						if err != nil {
+							ph.logger.Errorf("error emitting metric: %v", err)
+						}
 					}
 				}
+			}
 
-				// Forward message
-				_, err := ph.outputToClient.Write(*result.RawBody)
-				if err != nil {
-					ph.logger.Errorf("error forwarding server message to client: %v", err)
-				}
+			// Forward message
+			_, err := ph.outputToClient.Write(*result.RawBody)
+			if err != nil {
+				ph.logger.Errorf("error forwarding server message to client: %v", err)
 			}
 		}
 	}
@@ -291,6 +295,7 @@ func (ph *ProxyHandler) listenClient() {
 		if err != nil {
 			ph.logger.Errorf("error closing writer for server output: %v", err)
 		}
+
 		ph.listenersWaitGroup.Done()
 		ph.logger.Info("client listener shutdown complete")
 	}()
@@ -318,42 +323,56 @@ func (ph *ProxyHandler) listenClient() {
 	for {
 		select {
 		case <-ph.incomingShutdown:
-			{
-				// If there's an intercepted shutdown message, write it to the server.
-				if shutdownMessage != nil {
-					_, err := ph.outputToServer.Write(*shutdownMessage)
-					if err != nil {
-						// The caller is expected to use a timeout and eventually
-						// forcefully terminate the process if the write fails.
-						ph.logger.Errorf("error writing shutdown message to language server stdin: %v", err)
-					}
+			// If there's an intercepted shutdown message, write it to the server.
+			if shutdownMessage != nil {
+				_, err := ph.outputToServer.Write(*shutdownMessage)
+				if err != nil {
+					// The caller is expected to use a timeout and eventually
+					// forcefully terminate the process if the write fails.
+					ph.logger.Errorf("error writing shutdown message to language server stdin: %v", err)
 				}
-				return
 			}
+			return
 		case res := <-clientReadResultChan:
-			{
-				readResult := res.readResult
-				clientMessage := res.clientMessage
-				if readResult.Err != nil {
-					if readResult.Err == io.EOF {
-						ph.logger.Info("client closed connection")
-						// Notably, no ph.raiseShutdownRequest() here.
-						// A client closing the connection is not considered an error.
-						// lspwatch is to continue its server-watching duties.
-						return
-					}
-
-					ph.logger.Errorf("error reading message from client: %v", readResult.Err)
-					continue
+			readResult := res.readResult
+			clientMessage := res.clientMessage
+			if readResult.Err != nil {
+				if readResult.Err == io.EOF {
+					ph.logger.Info("client closed connection")
+					// Notably, no ph.raiseShutdownRequest() here.
+					// A client closing the connection is not considered an error.
+					// lspwatch is to continue its server-watching duties.
+					return
 				}
 
-				// Client has sent an LSP message, which kicks off normal LSP communication.
-				// So, stop pass-through of server bytes and start LSP processing.
-				ph.switchToProxyModeOnce()
+				ph.logger.Errorf("error reading message from client: %v", readResult.Err)
+				continue
+			}
 
-				// lspwatch ignores all non-request messages from clients
-				// e.g (cancellations, progress checks, etc)
-				if clientMessage.Id != nil && clientMessage.Method != nil {
+			// Client has sent an LSP message, which kicks off normal LSP communication.
+			// So, stop pass-through of server bytes and start LSP processing.
+			ph.switchToProxyModeOnce()
+
+			// lspwatch ignores all non-request messages from clients
+			// e.g (cancellations, progress checks, etc)
+			if clientMessage.Id != nil && clientMessage.Method != nil {
+
+				// Only consider requests which lspwatch is configured to meter.
+				if _, metered := ph.meteredRequests[*clientMessage.Method]; metered {
+
+					if ph.uiServer != nil {
+						// This isn't nice I know.
+						body := *readResult.RawBody
+						body = body[bytes.Index(body, []byte("\r\n\r\n"))+4:]
+
+						ph.uiServer.BroadcastMessage(ui.Message{
+							Direction: "client",
+							Content:   string(body),
+							Timestamp: time.Now().Format(time.RFC3339),
+							Duration:  -1,
+						})
+					}
+
 					bookmark := RequestBookmark{
 						RequestTime: time.Now(),
 						Method:      *clientMessage.Method,
@@ -365,19 +384,19 @@ func (ph *ProxyHandler) listenClient() {
 							clientMessage.Id.Value,
 						)
 					}
-				} else if clientMessage.Method != nil && *clientMessage.Method == "exit" {
-					ph.logger.Info("received exit request from client")
-					shutdownMessage = readResult.RawBody
-					ph.raiseShutdownRequest()
-					// Skip forwarding the shutdown message
-					continue
 				}
+			} else if clientMessage.Method != nil && *clientMessage.Method == "exit" {
+				ph.logger.Info("received exit request from client")
+				shutdownMessage = readResult.RawBody
+				ph.raiseShutdownRequest()
+				// Skip forwarding the shutdown message
+				continue // IMPORTANT
+			}
 
-				// Forward message
-				_, err := ph.outputToServer.Write(*readResult.RawBody)
-				if err != nil {
-					ph.logger.Errorf("error forwarding client message to language server stdin: %v", err)
-				}
+			// Forward message
+			_, err := ph.outputToServer.Write(*readResult.RawBody)
+			if err != nil {
+				ph.logger.Errorf("error forwarding client message to language server stdin: %v", err)
 			}
 		}
 	}
@@ -405,6 +424,7 @@ func NewProxyHandler(
 	outputToServer io.WriteCloser,
 	mode string,
 	logger *logrus.Logger,
+	uiServer *ui.Server,
 ) (*ProxyHandler, error) {
 	switch mode {
 	case "command", "proxy", "":
@@ -455,6 +475,7 @@ func NewProxyHandler(
 		mode:                mode,
 		logger:              logger,
 		listenersWaitGroup:  &sync.WaitGroup{},
+		uiServer:            uiServer,
 	}
 
 	err := rh.enableMetrics(cfg)

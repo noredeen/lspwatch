@@ -18,6 +18,7 @@ type LspwatchConfig struct {
 	Tags            []string  `yaml:"tags" validate:"omitempty,dive,oneof=user os language_server ram"`
 	MeteredRequests *[]string `yaml:"metered_requests" validate:"omitempty"`
 	PollingInterval *int      `yaml:"polling_interval" validate:"omitnil,gte=1,lte=1000"`
+	Debug           bool      `yaml:"debug"`
 
 	OpenTelemetry *OpenTelemetryConfig `yaml:"opentelemetry" validate:"required_if=Exporter opentelemetry"`
 	Datadog       *DatadogConfig       `yaml:"datadog" validate:"required_if=Exporter datadog"`

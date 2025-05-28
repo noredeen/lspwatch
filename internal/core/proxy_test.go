@@ -68,7 +68,7 @@ func TestNewProxyHandler(t *testing.T) {
 	t.Run("creates a default handler when no configured metrics or metered requests", func(t *testing.T) {
 		t.Parallel()
 		metricsRegistry := mockProxyMetricsRegistry{}
-		proxyHandler, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, "proxy", nil)
+		proxyHandler, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, "proxy", nil, nil)
 		if err != nil {
 			t.Fatalf("expected no error creating proxy handler, got '%v'", err)
 		}
@@ -95,7 +95,7 @@ func TestNewProxyHandler(t *testing.T) {
 		}
 
 		metricsRegistry := mockProxyMetricsRegistry{}
-		proxyHandler, err := NewProxyHandler(cfg, &metricsRegistry, nil, nil, nil, nil, "proxy", nil)
+		proxyHandler, err := NewProxyHandler(cfg, &metricsRegistry, nil, nil, nil, nil, "proxy", nil, nil)
 		if err != nil {
 			t.Fatalf("expected no error creating proxy handler, got '%v'", err)
 		}
@@ -115,7 +115,7 @@ func TestNewProxyHandler(t *testing.T) {
 		metricsRegistry := erroringMetricsRegistry{
 			errorEnableMetric: true,
 		}
-		_, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, "proxy", nil)
+		_, err := NewProxyHandler(&config.LspwatchConfig{}, &metricsRegistry, nil, nil, nil, nil, "proxy", nil, nil)
 		if err == nil {
 			t.Fatalf("expected error creating proxy handler, got nil")
 		}
@@ -482,6 +482,7 @@ func setUpTest(t *testing.T, metricsRegistry telemetry.MetricsRegistry, logger *
 		serverOut,
 		"proxy",
 		logger,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("expected no error creating proxy handler, got '%v'", err)
