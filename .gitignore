@@ -15,5 +15,6 @@ go.work
 **/build/
 **/coverage
 stubs
+.cursor
 # Added by goreleaser init:
 dist/

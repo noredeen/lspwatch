@@ -25,6 +25,9 @@ install: build
 uninstall:
 	rm -f $(INSTALL_DIR)/$(APP_NAME)
 
+.PHONY: reinstall
+reinstall: uninstall install
+
 .PHONY: run
 run: build
 	@echo "Running $(APP_NAME)..."

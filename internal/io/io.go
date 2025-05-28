@@ -20,19 +20,19 @@ type StringOrInt struct {
 }
 
 type LSPClientMessage struct {
-	Id     *StringOrInt
-	Method *string
-	Params *json.RawMessage
+	Id     *StringOrInt     `json:"id"`
+	Method *string          `json:"method"`
+	Params *json.RawMessage `json:"params"`
 }
 
 type LSPServerMessage struct {
-	Id     *StringOrInt
-	Method *string
-	Result *json.RawMessage
+	Id     *StringOrInt     `json:"id"`
+	Method *string          `json:"method"`
+	Result *json.RawMessage `json:"result"`
 	Error  *struct {
-		Code    int
-		Message string
-		Data    *json.RawMessage
+		Code    int              `json:"code"`
+		Message string           `json:"message"`
+		Data    *json.RawMessage `json:"data"`
 	}
 }
 
