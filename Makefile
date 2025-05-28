@@ -92,10 +92,11 @@ tear-down-test-dependencies: stop-otel-collector
 .PHONY: run-integration-tests
 run-integration-tests:
 	@echo "Running integration tests..."
+	@echo "Current directory: $(CURDIR)"
 	mkdir -p $(COVERAGE_DIR)/int
 	TEST_DATA_DIR=$(TEST_DATA_DIR) \
-	LSPWATCH_BIN=$(PWD)/$(BUILD_DIR)/$(APP_NAME)_cov \
-	COVERAGE_DIR=$(PWD)/$(COVERAGE_DIR)/int \
+	LSPWATCH_BIN=$(CURDIR)/$(BUILD_DIR)/$(APP_NAME)_cov \
+	COVERAGE_DIR=$(CURDIR)/$(COVERAGE_DIR)/int \
 	go test $(INTEGRATION_TEST_DIR)/... -v -cover -covermode=atomic
 
 .PHONY: integration-tests

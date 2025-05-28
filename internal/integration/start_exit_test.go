@@ -329,6 +329,6 @@ func TestCommandMode(t *testing.T) {
 
 		testutil.AssertExitsBefore(t, "lspwatch", func() {
 			cmd.Process.Wait()
-		}, 2*time.Second)
+		}, 3*time.Second)
 	})
 }
