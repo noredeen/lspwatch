@@ -100,11 +100,13 @@ func (ph *ProxyHandler) Start() {
 		go ph.listenClient()
 		go ph.listenServer()
 	} else if ph.mode == "command" {
+		ph.listenersWaitGroup.Add(1)
 		go ph.passThroughServerBytes()
 	} else {
 		ph.listenersWaitGroup.Add(2)
 		go ph.listenClient()
 		go ph.listenServer()
+		ph.listenersWaitGroup.Add(1)
 		go ph.passThroughServerBytes()
 	}
 
@@ -145,11 +147,14 @@ func (ph *ProxyHandler) enableMetrics(cfg *config.LspwatchConfig) error {
 }
 
 func (ph *ProxyHandler) passThroughServerBytes() {
+	defer ph.listenersWaitGroup.Done()
 	for {
 		buf := make([]byte, 1024)
 		n, err := ph.serverPassThroughReader.Read(buf)
 		if err != nil {
-			ph.logger.Errorf("error reading from server pass through reader: %v", err)
+			if err != io.EOF {
+				ph.logger.Errorf("error reading from server pass through reader: %v", err)
+			}
 			break
 		}
 		ph.logger.Infof("read %d bytes from server pass through reader", n)
