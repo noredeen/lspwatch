@@ -197,10 +197,34 @@ func CreateLogger(logDir string, fileName string) (*logrus.Logger, *os.File, err
 
 func (bd *SingleUseDiverterPipe) Start() {
 	go func() {
+		var readErr error
+		defer func() {
+			// If the source closes, ensure any downstream pipe writers also close so
+			// readers can terminate (important for command-mode pass-through).
+			closeDest := func(w io.Writer, err error) {
+				// Prefer CloseWithError for io.PipeWriter.
+				if cwe, ok := w.(interface{ CloseWithError(error) error }); ok {
+					_ = cwe.CloseWithError(err)
+					return
+				}
+				if c, ok := w.(io.Closer); ok {
+					_ = c.Close()
+				}
+			}
+
+			// Treat io.EOF as a clean shutdown.
+			if readErr == io.EOF {
+				readErr = nil
+			}
+			closeDest(bd.firstDestination, readErr)
+			closeDest(bd.secondDestination, readErr)
+		}()
+
 		for {
 			buf := make([]byte, 1024)
 			n, err := bd.source.Read(buf)
 			if err != nil {
+				readErr = err
 				break
 			}
 

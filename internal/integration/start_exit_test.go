@@ -192,13 +192,18 @@ func TestServerProcessDiesAbruptly(t *testing.T) {
 func TestUnresponsiveServerProcess(t *testing.T) {
 	t.Parallel()
 	logDir := testutil.GenerateRandomLogDirName()
+
+	unresponsiveServer := filepath.Join(os.Getenv("INTEGRATION_BUILD_DIR"), "unresponsive_server")
+	if os.Getenv("INTEGRATION_BUILD_DIR") == "" {
+		unresponsiveServer = "./build/unresponsive_server"
+	}
 	cmd := testutil.PrepareIntegrationTest(t,
 		"--logdir",
 		logDir,
 		"--mode",
 		"proxy",
 		"--",
-		"./build/unresponsive_server",
+		unresponsiveServer,
 	)
 
 	serverStdin, err := cmd.StdinPipe()

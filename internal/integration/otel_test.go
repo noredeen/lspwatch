@@ -53,9 +53,15 @@ type otelExternalExportedObject struct {
 }
 
 func TestLspwatchWithOtel(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("error getting working directory: %v", err)
+	}
+
 	testDataDir := os.Getenv("TEST_DATA_DIR")
 	if testDataDir == "" {
-		t.Fatalf("TEST_DATA_DIR is not set")
+		// Default for local `go test ./...` runs.
+		testDataDir = filepath.Join(cwd, "testdata")
 	}
 
 	bytes, err := os.ReadFile(filepath.Join(testDataDir, "client_messages.json"))
@@ -69,13 +75,11 @@ func TestLspwatchWithOtel(t *testing.T) {
 		t.Fatalf("failed to unmarshal client messages: %v", err)
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("error getting working directory: %v", err)
-	}
-
 	t.Run("gprc exporter", func(t *testing.T) {
 		t.Parallel()
+		if !dockerIsAvailable(t) {
+			t.Skip("docker not available; skipping external OTel exporter test")
+		}
 		otelExportsDir := createTempWritableDir(t, "otel-grpc-exports")
 		otelConfigFile := filepath.Join(cwd, "config", "otel_config.yaml")
 		lspwatchConfigFile := filepath.Join(cwd, "config", "otel_grpc_lspwatch.yaml")
@@ -103,6 +107,9 @@ func TestLspwatchWithOtel(t *testing.T) {
 
 	t.Run("http exporter", func(t *testing.T) {
 		t.Parallel()
+		if !dockerIsAvailable(t) {
+			t.Skip("docker not available; skipping external OTel exporter test")
+		}
 		otelExportsDir := createTempWritableDir(t, "otel-http-exports")
 		otelConfigFile := filepath.Join(cwd, "config", "otel_config.yaml")
 		lspwatchConfigFile := filepath.Join(cwd, "config", "otel_http_lspwatch.yaml")
@@ -139,12 +146,17 @@ func TestLspwatchWithOtel(t *testing.T) {
 
 func runTest(t *testing.T, configFile string, messages []string) {
 	t.Helper()
+
+	mockServer := filepath.Join(os.Getenv("INTEGRATION_BUILD_DIR"), "mock_language_server")
+	if os.Getenv("INTEGRATION_BUILD_DIR") == "" {
+		mockServer = "./build/mock_language_server"
+	}
 	cmd := testutil.PrepareIntegrationTest(
 		t,
 		"--config",
 		configFile,
 		"--",
-		"./build/mock_language_server",
+		mockServer,
 	)
 
 	serverStdin, err := cmd.StdinPipe()
@@ -387,4 +399,19 @@ func createTempWritableDir(t *testing.T, dirName string) string {
 	}
 
 	return dir
+}
+
+func dockerIsAvailable(t *testing.T) bool {
+	t.Helper()
+
+	// Use the same env-based configuration docker CLI would use (DOCKER_HOST, etc).
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = dockerClient.Ping(ctx)
+	return err == nil
 }
